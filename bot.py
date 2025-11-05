@@ -75,3 +75,9 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+@dp.message()
+async def get_thread_id(m: Message):
+    if m.is_topic_message:
+        await m.answer(f"🩶 ID этой темы: `{m.message_thread_id}`")
+    else:
+        await m.answer("🖤 Это не сообщение внутри темы.")
