@@ -34,7 +34,7 @@ ROLE_TOPICS = {
     "typecheck":  int(os.getenv("THREAD_TYPECHECK_ID", "0")),
 }
 
-# ссылки на методички и тестовые папки (заполни свои)
+# ссылки на методички и тестовые папки (замени на свои при желании)
 ROLE_INFO = {
     "translator": {
         "title": "Переводчик",
@@ -98,7 +98,7 @@ bot = Bot(BOT_TOKEN)
 dp = Dispatcher()
 
 # состояние пользователей (простая in-memory)
-# user_id -> {"flow": "...", "role": "...", "deadline": datetime|None}
+# user_id -> {"flow": "...", "role": "...", "deadline": datetime|None, "msg_id": int|None}
 STATE = {}
 
 # ============ KEYBOARDS ============
@@ -185,15 +185,10 @@ def apply_info_block(key: str) -> str:
     title = info.get("title", key)
     desc = info.get("desc", "Описание скоро будет.")
     guide = info.get("guide", "—")
-    return (
-        f"**{title}**\n{desc}\n\n"
-        f"Методичка: {guide}"
-    )
+    return f"**{title}**\n{desc}\n\nМетодичка: {guide}"
 
 async def schedule_deadline_notify(user_id: int, role_key: str, started_at: datetime):
-    """Простой таймер дедлайна. На старте сообщает в группу, через N дней — напоминает."""
     deadline = started_at + timedelta(days=TEST_DEADLINE_DAYS)
-    # сообщим в группу о выдаче теста
     thread_id = ROLE_TOPICS.get(role_key) or None
     title = role_title(role_key)
     try:
@@ -211,121 +206,129 @@ async def schedule_deadline_notify(user_id: int, role_key: str, started_at: date
     except Exception as e:
         print("Error posting assignment:", e)
 
-    # ждём до дедлайна и напоминаем
     now = datetime.now(timezone.utc)
     delta = (deadline.replace(tzinfo=timezone.utc) - now).total_seconds()
     if delta > 0:
         await asyncio.sleep(delta)
         try:
-            await bot.send_message(user_id, f"Напоминание: срок сдачи теста по роли «{title}» истёк. "
-                                            f"Если нужно продление, ответьте на это сообщение.")
+            await bot.send_message(
+                user_id,
+                f"Напоминание: срок сдачи теста по роли «{title}» истёк. "
+                f"Если нужно продление, ответьте на это сообщение."
+            )
         except Exception as e:
             print("Notify user failed:", e)
 
-# --- CLEAN SEND HELPERS ---
-async def replace_with_new(target, text: str, *, reply_markup=None, parse_mode=None):
-    """
-    Удаляет предыдущее сообщение (бота или триггерящее), затем отправляет новое.
-    Подходит для Message (/start) и CallbackQuery (клики по кнопкам).
-    """
-    if isinstance(target, CallbackQuery):
-        chat_id = target.message.chat.id
-        # удаляем предыдущее бот-сообщение с кнопками
-        try:
-            await bot.delete_message(chat_id, target.message.message_id)
-        except Exception:
-            pass
-        # шлём новое
-        sent = await bot.send_message(chat_id, text, reply_markup=reply_markup, parse_mode=parse_mode)
-        try:
-            await target.answer()
-        except Exception:
-            pass
-        return sent
+# --- EDIT-IN-PLACE SCREEN RENDERING ---
 
-    if isinstance(target, Message):
-        chat_id = target.chat.id
-        # пробуем снести сообщение пользователя
+async def render_screen(user_id: int, chat_id: int, text: str, *, reply_markup=None, parse_mode=None):
+    """
+    Рендерит "экран" бота одним сообщением:
+    если STATE[user]["msg_id"] есть — редактирует его,
+    иначе отправляет новое и сохраняет msg_id.
+    """
+    st = STATE.setdefault(user_id, {"flow": None, "role": None, "deadline": None, "msg_id": None})
+    msg_id = st.get("msg_id")
+    if msg_id:
         try:
-            await target.delete()
-        except Exception:
-            pass
-        sent = await bot.send_message(chat_id, text, reply_markup=reply_markup, parse_mode=parse_mode)
-        return sent
+            await bot.edit_message_text(
+                text=text,
+                chat_id=chat_id,
+                message_id=msg_id,
+                reply_markup=reply_markup,
+                parse_mode=parse_mode
+            )
+            return
+        except Exception as e:
+            # если не удалось отредактировать (например, было удалено вручную), отправим новое
+            print("Edit failed, fallback to send:", e)
+
+    sent = await bot.send_message(chat_id, text, reply_markup=reply_markup, parse_mode=parse_mode)
+    st["msg_id"] = sent.message_id
 
 # ============ HANDLERS ============
 
 @dp.message(Command("start"))
 async def cmd_start(m: Message):
-    STATE[m.from_user.id] = {"flow": None, "role": None, "deadline": None}
-    await replace_with_new(
-        m,
-        "Присоединяйся к команде Tales of Kitsune — магия начинается с первой главы.\n\n"
-        "Выбери раздел:",
+    STATE[m.from_user.id] = {"flow": None, "role": None, "deadline": None, "msg_id": None}
+    await render_screen(
+        m.from_user.id, m.chat.id,
+        "Присоединяйся к команде Tales of Kitsune — магия начинается с первой главы.\n\nВыбери раздел:",
         reply_markup=main_menu()
     )
 
 @dp.callback_query(F.data == "about")
 async def on_about(c: CallbackQuery):
-    await replace_with_new(
-        c,
+    await render_screen(
+        c.from_user.id, c.message.chat.id,
         "Tales of Kitsune — команда, которая переводит манхвы с любовью к оригиналу и уважением к читателю.",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="« Назад", callback_data="back:menu"),
              InlineKeyboardButton(text="Подать заявку", callback_data="apply")]
         ])
     )
+    await c.answer()
 
 @dp.callback_query(F.data == "vacancies")
 async def on_vacancies(c: CallbackQuery):
-    STATE[c.from_user.id] = {"flow": "vacancies", "role": None, "deadline": None}
-    await replace_with_new(c, "Выбери специальность:", reply_markup=vacancies_keyboard())
+    st = STATE.setdefault(c.from_user.id, {})
+    st.update({"flow": "vacancies", "role": None})
+    await render_screen(c.from_user.id, c.message.chat.id, "Выбери специальность:", reply_markup=vacancies_keyboard())
+    await c.answer()
 
 @dp.callback_query(F.data == "apply")
 async def on_apply(c: CallbackQuery):
-    STATE[c.from_user.id] = {"flow": "apply", "role": None, "deadline": None}
-    await replace_with_new(c, "Выбери специальность для подачи заявки:", reply_markup=apply_roles_keyboard())
+    st = STATE.setdefault(c.from_user.id, {})
+    st.update({"flow": "apply", "role": None})
+    await render_screen(c.from_user.id, c.message.chat.id, "Выбери специальность для подачи заявки:", reply_markup=apply_roles_keyboard())
+    await c.answer()
 
 @dp.callback_query(F.data == "back:menu")
 async def on_back_menu(c: CallbackQuery):
-    STATE[c.from_user.id] = {"flow": None, "role": None, "deadline": None}
-    await replace_with_new(c, "Главное меню:", reply_markup=main_menu())
+    st = STATE.setdefault(c.from_user.id, {})
+    st.update({"flow": None, "role": None})
+    await render_screen(c.from_user.id, c.message.chat.id, "Главное меню:", reply_markup=main_menu())
+    await c.answer()
 
 @dp.callback_query(F.data == "back:vacancies")
 async def on_back_vacancies(c: CallbackQuery):
-    STATE[c.from_user.id]["flow"] = "vacancies"
-    STATE[c.from_user.id]["role"] = None
-    await replace_with_new(c, "Специальности:", reply_markup=vacancies_keyboard())
+    st = STATE.setdefault(c.from_user.id, {})
+    st.update({"flow": "vacancies", "role": None})
+    await render_screen(c.from_user.id, c.message.chat.id, "Специальности:", reply_markup=vacancies_keyboard())
+    await c.answer()
 
 @dp.callback_query(F.data == "back:applyroles")
 async def on_back_applyroles(c: CallbackQuery):
-    STATE[c.from_user.id]["flow"] = "apply"
-    STATE[c.from_user.id]["role"] = None
-    await replace_with_new(c, "Выбери специальность:", reply_markup=apply_roles_keyboard())
+    st = STATE.setdefault(c.from_user.id, {})
+    st.update({"flow": "apply", "role": None})
+    await render_screen(c.from_user.id, c.message.chat.id, "Выбери специальность:", reply_markup=apply_roles_keyboard())
+    await c.answer()
 
 # ——— Вакансии: показать описание роли
 @dp.callback_query(F.data.startswith("v:"))
 async def vacancy_show(c: CallbackQuery):
     key = c.data.split(":", 1)[1]
-    STATE[c.from_user.id]["role"] = key
-    await replace_with_new(
-        c,
-        role_desc_block(key),
-        parse_mode="Markdown",
+    st = STATE.setdefault(c.from_user.id, {})
+    st["role"] = key
+    await render_screen(
+        c.from_user.id, c.message.chat.id,
+        role_desc_block(key), parse_mode="Markdown",
         reply_markup=back_and_apply_small()
     )
+    await c.answer()
 
 # ——— Подача: показать роль + методичка + кнопка "Пройти тестовое задание"
 @dp.callback_query(F.data.startswith("a:"))
 async def apply_role_intro(c: CallbackQuery):
     key = c.data.split(":", 1)[1]
-    STATE[c.from_user.id]["role"] = key
-    await replace_with_new(
-        c,
-        apply_info_block(key),
-        parse_mode="Markdown",
+    st = STATE.setdefault(c.from_user.id, {})
+    st["role"] = key
+    await render_screen(
+        c.from_user.id, c.message.chat.id,
+        apply_info_block(key), parse_mode="Markdown",
         reply_markup=start_test_keyboard(key)
     )
+    await c.answer()
 
 # ——— Старт теста: сообщаем, даем ссылку на папку и запускаем дедлайн
 @dp.callback_query(F.data.startswith("starttest:"))
@@ -333,10 +336,11 @@ async def start_test(c: CallbackQuery):
     key = c.data.split(":", 1)[1]
     info = ROLE_INFO.get(key, {})
     folder = info.get("test_folder", "—")
-    STATE[c.from_user.id]["deadline"] = datetime.now(timezone.utc)
+    st = STATE.setdefault(c.from_user.id, {})
+    st["deadline"] = datetime.now(timezone.utc)
 
-    await replace_with_new(
-        c,
+    await render_screen(
+        c.from_user.id, c.message.chat.id,
         "Заполните анкету по форме ниже (отправьте сообщением — пункты можно перечислить):\n"
         "Имя / Ник\nОпыт (если есть)\nЧасовой пояс\nГотовность по времени\n\n"
         f"Папка с тестовым заданием: {folder}\n"
@@ -346,7 +350,8 @@ async def start_test(c: CallbackQuery):
         ])
     )
 
-    asyncio.create_task(schedule_deadline_notify(c.from_user.id, key, STATE[c.from_user.id]["deadline"]))
+    asyncio.create_task(schedule_deadline_notify(c.from_user.id, key, st["deadline"]))
+    await c.answer("Тест выдан")
 
 # ——— Прием сообщений/файлов в рамках заявки: пересылка в тему по роли
 @dp.message()
@@ -371,12 +376,6 @@ async def collect_and_forward(m: Message):
                 await bot.send_message(GROUP_ID, header)
                 await m.copy_to(GROUP_ID)
 
-        # удаляем исходное сообщение пользователя, чтобы не захламлять
-        try:
-            await m.delete()
-        except Exception:
-            pass
-
         await bot.send_message(m.chat.id, "Принято. Сообщение отправлено кураторам.")
     except Exception as e:
         print("Forward error:", e)
@@ -393,7 +392,6 @@ async def topic_id(m: Message):
 # ——— Админское PM из группы: /pm <user_id> текст…
 @dp.message(Command("pm"))
 async def admin_pm(m: Message, command: CommandObject):
-    # только из группы с правами админа
     if m.chat.type not in ("supergroup", "group"):
         return
     if ADMIN_IDS and m.from_user.id not in ADMIN_IDS:
@@ -438,9 +436,16 @@ def start_http():
     srv.serve_forever()
 
 async def main():
-    # подстраховка на случай оставшегося вебхука
+    # подстраховка на случай, если вдруг где-то висел вебхук
     try:
         await bot.delete_webhook(drop_pending_updates=True)
+    except Exception:
+        pass
+
+    # кому нужен sanity-чек
+    try:
+        me = await bot.get_me()
+        print(f"Running bot: @{me.username} (id {me.id})")
     except Exception:
         pass
 
