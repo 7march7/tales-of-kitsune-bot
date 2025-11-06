@@ -1,18 +1,20 @@
 # bot.py
 import os
 import asyncio
+from threading import Thread
+from http.server import BaseHTTPRequestHandler, HTTPServer
+
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message
-from aiohttp import web
 
-# ---- конфиг ----
+# --- конфиг ---
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 if not BOT_TOKEN:
-    raise RuntimeError("BOT_TOKEN не задан. Добавь его в Environment Variables.")
+    raise RuntimeError("BOT_TOKEN не задан")
 
-# порт для "фиктивного" веб-сервера (Render назначает PORT автоматически)
-PORT = int(os.getenv("PORT", "8000"))
+# Render может подставлять PORT сам; если нет, берём 10000 (мы задали его в env)
+PORT = int(os.getenv("PORT", "10000"))
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
@@ -29,7 +31,6 @@ def start_keyboard():
         ]
     ])
 
-
 # --- хэндлеры ---
 @dp.message(Command("start"))
 async def start_cmd(m: Message):
@@ -38,7 +39,6 @@ async def start_cmd(m: Message):
         "Выбери нужный раздел ниже:"
     )
     await m.answer(text, reply_markup=start_keyboard())
-
 
 @dp.callback_query(F.data == "vacancies")
 async def show_vacancies(call):
@@ -53,14 +53,12 @@ async def show_vacancies(call):
         "Если хочешь узнать подробнее — нажми «Подать заявку»."
     )
 
-
 @dp.callback_query(F.data == "about")
 async def show_about(call):
     await call.message.answer(
         "🦊 Tales of Kitsune — команда, создающая качественные переводы и оформление манхв.\n\n"
         "Мы объединяем переводчиков, редакторов и дизайнеров, чтобы оживлять истории с атмосферой и вниманием к деталям."
     )
-
 
 @dp.callback_query(F.data == "apply")
 async def show_apply(call):
@@ -73,44 +71,34 @@ async def show_apply(call):
         "После этого куратор свяжется с тобой для выдачи тестового задания."
     )
 
+# --- простейший HTTP-сервер (чтобы Render видел открытый порт) ---
+class _Handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path in ("/", "/healthz"):
+            body = b"OK"
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        else:
+            self.send_response(404)
+            self.end_headers()
 
-# --- лёгкий веб-сервер для Render ---
-async def start_webserver(port: int):
-    app = web.Application()
+    # убираем спам в логи
+    def log_message(self, fmt, *args): 
+        return
 
-    async def handle_ok(request):
-        return web.Response(text="OK")
+def start_http_server():
+    server = HTTPServer(("0.0.0.0", PORT), _Handler)
+    print(f"HTTP server started on port {PORT}")
+    server.serve_forever()
 
-    async def handle_health(request):
-        return web.json_response({"status": "ok"})
-
-    app.add_routes([
-        web.get("/", handle_ok),
-        web.get("/healthz", handle_health),
-    ])
-
-    runner = web.AppRunner(app)
-    await runner.setup()
-    site = web.TCPSite(runner, "0.0.0.0", port)
-    await site.start()
-    print(f"Web server started on port {port}")
-    # не блокируем: сайт запущен и будет работать параллельно
-    return runner  # на случай, если захочешь чисто завершить
-
-
-# --- запуск бота + веб-сервера ---
 async def main():
-    # 1) стартим веб-сервер (чтобы Render видел открытый порт)
-    try:
-        await start_webserver(PORT)
-    except Exception as e:
-        print("Не удалось стартовать веб-сервер:", e)
-
-    # 2) стартим polling бота
-    print("Запускаем Telegram bot polling...")
+    # поднимем HTTP-порт в отдельном потоке
+    Thread(target=start_http_server, daemon=True).start()
+    print("Starting Telegram bot polling...")
     await dp.start_polling(bot)
-    # при остановке можно закрыть bot и т.д.
-
 
 if __name__ == "__main__":
     try:
