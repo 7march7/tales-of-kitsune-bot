@@ -393,10 +393,9 @@ async def admin_pm(m: Message, command: CommandObject):
         await m.reply(f"Не удалось отправить: {e}")
 
 # ——— Прием сообщений/файлов в рамках заявки: пересылка в тему по роли
-#     игнорируем команды (чтобы /topicid не ловился как "заявка")
-@dp.message(~Command())
+@dp.message()
 async def collect_and_forward(m: Message):
-    # дополнительная страховка, если инверсия Command() вдруг не сработает:
+    # игнорим команды (чтобы /topicid, /pm, /cancel не ловились как «заявка»)
     if m.text and m.text.startswith("/"):
         return
 
