@@ -422,18 +422,29 @@ async def collect_and_forward(m: Message):
 # ============ FAKE HTTP FOR RENDER ============
 
 class _Handler(BaseHTTPRequestHandler):
+    def _ok(self):
+        body = b"OK"
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        return body
+
     def do_GET(self):
         if self.path in ("/", "/healthz"):
-            body = b"OK"
-            self.send_response(200)
-            self.send_header("Content-Type", "text/plain")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
+            self.wfile.write(self._ok())
         else:
             self.send_response(404); self.end_headers()
-    def log_message(self, fmt, *args):  # тихо
+
+    def do_HEAD(self):
+        if self.path in ("/", "/healthz"):
+            self._ok()  # то же самое, но без тела
+        else:
+            self.send_response(404); self.end_headers()
+
+    def log_message(self, fmt, *args):
         return
+
 
 def start_http():
     srv = HTTPServer(("0.0.0.0", PORT), _Handler)
