@@ -19,10 +19,11 @@ if not BOT_TOKEN:
 
 # супергруппа с включенными темами (форум)
 GROUP_ID = int(os.getenv("GROUP_ID", "0"))            # пример: -1001234567890
-# comma-separated admin user ids who can /pm from the group
+
+# список админов, кому разрешено /pm из группы
 ADMIN_IDS = {int(x) for x in os.getenv("ADMIN_IDS", "").split(",") if x.strip().isdigit()}
 
-# ID тем (вкладок) по ролям — задаются через env
+# ID тем по ролям (вкладки форума)
 ROLE_TOPICS = {
     "translator": int(os.getenv("THREAD_TRANSLATOR_ID", "0")),
     "editor":     int(os.getenv("THREAD_EDITOR_ID", "0")),
@@ -34,7 +35,7 @@ ROLE_TOPICS = {
     "typecheck":  int(os.getenv("THREAD_TYPECHECK_ID", "0")),
 }
 
-# ссылки на методички и тестовые папки (поставь свои при желании)
+# инфо по ролям (захочешь — подставь свои ссылки)
 ROLE_INFO = {
     "translator": {
         "title": "Переводчик",
@@ -86,10 +87,9 @@ ROLE_INFO = {
     },
 }
 
-# длительность дедлайна для теста
 TEST_DEADLINE_DAYS = int(os.getenv("TEST_DEADLINE_DAYS", "3"))
 
-# фиктивный http для Render Web Service
+# фейковый http для Render Web Service
 PORT = int(os.getenv("PORT", "10000"))
 
 # ============ BOT CORE ============
@@ -97,8 +97,8 @@ PORT = int(os.getenv("PORT", "10000"))
 bot = Bot(BOT_TOKEN)
 dp = Dispatcher()
 
-# состояние пользователей (in-memory):
-# user_id -> {"flow": "...", "role": "...", "deadline": datetime|None, "msg_id": int|None}
+# состояние пользователей:
+# user_id -> {"flow": ..., "role": ..., "deadline": datetime|None, "msg_id": int|None}
 STATE = {}
 
 # ============ KEYBOARDS ============
@@ -178,22 +178,24 @@ def role_desc_block(key: str) -> str:
     info = ROLE_INFO.get(key) or {}
     title = info.get("title", key)
     desc = info.get("desc", "Описание скоро будет.")
-    return f"**{title}**\n{desc}"
+    return f"{title}\n{desc}"
 
 def apply_info_block(key: str) -> str:
     info = ROLE_INFO.get(key) or {}
     title = info.get("title", key)
     desc = info.get("desc", "Описание скоро будет.")
     guide = info.get("guide", "—")
-    return f"**{title}**\n{desc}\n\nМетодичка: {guide}"
+    return f"{title}\n{desc}\n\nМетодичка: {guide}"
 
 async def schedule_deadline_notify(user_id: int, role_key: str, started_at: datetime):
+    """Сообщение в группу при выдаче теста и напоминание пользователю по дедлайну."""
     deadline = started_at + timedelta(days=TEST_DEADLINE_DAYS)
     thread_id = ROLE_TOPICS.get(role_key) or None
     title = role_title(role_key)
+
     try:
         text = (
-            f"⏳ Выдано тестовое задание\n"
+            "⏳ Выдано тестовое задание\n"
             f"Роль: {title}\n"
             f"Пользователь: id {user_id}\n"
             f"Дедлайн: {deadline.strftime('%Y-%m-%d %H:%M %Z') or deadline.isoformat()}"
@@ -213,20 +215,14 @@ async def schedule_deadline_notify(user_id: int, role_key: str, started_at: date
         try:
             await bot.send_message(
                 user_id,
-                f"Напоминание: срок сдачи теста по роли «{title}» истёк. "
-                f"Если нужно продление, ответьте на это сообщение."
+                f"Напоминание: срок сдачи теста по роли «{title}» истёк. Если нужно продление, ответьте на это сообщение."
             )
         except Exception as e:
             print("Notify user failed:", e)
 
-# --- EDIT-IN-PLACE SCREEN RENDERING ---
+# --- EDIT-IN-PLACE: один «экран» на пользователя ---
 
-async def render_screen(user_id: int, chat_id: int, text: str, *, reply_markup=None, parse_mode=None):
-    """
-    Рендерит "экран" бота одним сообщением:
-    если STATE[user]["msg_id"] есть — редактирует его,
-    иначе отправляет новое и сохраняет msg_id.
-    """
+async def render_screen(user_id: int, chat_id: int, text: str, *, reply_markup=None):
     st = STATE.setdefault(user_id, {"flow": None, "role": None, "deadline": None, "msg_id": None})
     msg_id = st.get("msg_id")
     if msg_id:
@@ -235,15 +231,14 @@ async def render_screen(user_id: int, chat_id: int, text: str, *, reply_markup=N
                 text=text,
                 chat_id=chat_id,
                 message_id=msg_id,
-                reply_markup=reply_markup,
-                parse_mode=parse_mode
+                reply_markup=reply_markup
             )
             return
         except Exception as e:
-            # если не удалось отредактировать (удалено и т.п.), шлём новое
+            # если редактировать не вышло — шлём новое
             print("Edit failed, fallback to send:", e)
 
-    sent = await bot.send_message(chat_id, text, reply_markup=reply_markup, parse_mode=parse_mode)
+    sent = await bot.send_message(chat_id, text, reply_markup=reply_markup)
     st["msg_id"] = sent.message_id
 
 # ============ HANDLERS ============
@@ -256,6 +251,19 @@ async def cmd_start(m: Message):
         "Присоединяйся к команде Tales of Kitsune — магия начинается с первой главы.\n\nВыбери раздел:",
         reply_markup=main_menu()
     )
+
+@dp.message(Command("cancel"))
+async def cancel(m: Message):
+    STATE.pop(m.from_user.id, None)
+    await m.answer("Окей. Режим подачи заявки отключён. Набери /start, чтобы начать заново.")
+
+@dp.message(Command("topicid"))
+async def topic_id(m: Message):
+    # команду надо отправить ВНУТРИ темы в группе
+    if getattr(m, "is_topic_message", False):
+        await m.answer(f"ID этой темы: {m.message_thread_id}")
+    else:
+        await m.answer("Отправьте команду /topicid внутри нужной темы (вкладки) группы.")
 
 @dp.callback_query(F.data == "about")
 async def on_about(c: CallbackQuery):
@@ -312,7 +320,7 @@ async def vacancy_show(c: CallbackQuery):
     st["role"] = key
     await render_screen(
         c.from_user.id, c.message.chat.id,
-        role_desc_block(key), parse_mode="Markdown",
+        role_desc_block(key),
         reply_markup=back_and_apply_small()
     )
     await c.answer()
@@ -325,12 +333,12 @@ async def apply_role_intro(c: CallbackQuery):
     st["role"] = key
     await render_screen(
         c.from_user.id, c.message.chat.id,
-        apply_info_block(key), parse_mode="Markdown",
+        apply_info_block(key),
         reply_markup=start_test_keyboard(key)
     )
     await c.answer()
 
-# ——— Старт теста: сообщаем, даем ссылку на папку и запускаем дедлайн
+# ——— Старт теста
 @dp.callback_query(F.data.startswith("starttest:"))
 async def start_test(c: CallbackQuery):
     key = c.data.split(":", 1)[1]
@@ -341,7 +349,7 @@ async def start_test(c: CallbackQuery):
 
     await render_screen(
         c.from_user.id, c.message.chat.id,
-        "Заполните анкету по форме ниже (отправьте сообщением — пункты можно перечислить):\n"
+        "Заполните анкету по форме ниже (отправьте одним сообщением — пункты можно перечислить):\n"
         "Имя / Ник\nОпыт (если есть)\nЧасовой пояс\nГотовность по времени\n\n"
         f"Папка с тестовым заданием: {folder}\n"
         f"Дедлайн: {TEST_DEADLINE_DAYS} дня.",
@@ -352,20 +360,6 @@ async def start_test(c: CallbackQuery):
 
     asyncio.create_task(schedule_deadline_notify(c.from_user.id, key, st["deadline"]))
     await c.answer("Тест выдан")
-
-# ===== СЕРВИСНЫЕ КОМАНДЫ (ставим выше коллектора) =====
-
-@dp.message(Command("topicid"))
-async def topic_id(m: Message):
-    if getattr(m, "is_topic_message", False):
-        await m.answer(f"ID этой темы: {m.message_thread_id}")
-    else:
-        await m.answer("Отправьте команду внутри нужной темы (вкладки) группы.")
-
-@dp.message(Command("cancel"))
-async def cancel(m: Message):
-    STATE.pop(m.from_user.id, None)
-    await m.answer("Окей. Режим подачи заявки отключён.")
 
 # ——— Админское PM из группы: /pm <user_id> текст…
 @dp.message(Command("pm"))
@@ -392,16 +386,16 @@ async def admin_pm(m: Message, command: CommandObject):
     except Exception as e:
         await m.reply(f"Не удалось отправить: {e}")
 
-# ——— Прием сообщений/файлов в рамках заявки: пересылка в тему по роли
+# ——— Прием контента в рамках заявки и пересылка в тему
 @dp.message()
 async def collect_and_forward(m: Message):
-    # игнорим команды (чтобы /topicid, /pm, /cancel не ловились как «заявка»)
+    # команды игнорим (чтобы /start, /cancel и т.д. не уезжали в заявки)
     if m.text and m.text.startswith("/"):
         return
 
     st = STATE.get(m.from_user.id)
     if not st or not st.get("role"):
-        return  # не в процессе подачи
+        return  # пользователь не в процессе подачи
 
     role = st["role"]
     title = role_title(role)
@@ -438,7 +432,7 @@ class _Handler(BaseHTTPRequestHandler):
             self.wfile.write(body)
         else:
             self.send_response(404); self.end_headers()
-    def log_message(self, fmt, *args):  # silence
+    def log_message(self, fmt, *args):  # тихо
         return
 
 def start_http():
@@ -447,13 +441,12 @@ def start_http():
     srv.serve_forever()
 
 async def main():
-    # подстраховка: если где-то был вебхук — снести
+    # на всякий случай сносим вебхук, если где-то остался
     try:
         await bot.delete_webhook(drop_pending_updates=True)
     except Exception:
         pass
 
-    # sanity-чек
     try:
         me = await bot.get_me()
         print(f"Running bot: @{me.username} (id {me.id})")
