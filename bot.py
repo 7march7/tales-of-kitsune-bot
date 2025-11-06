@@ -105,7 +105,7 @@ bot = Bot(BOT_TOKEN)
 dp = Dispatcher()
 
 # Простейшее состояние
-# user_id -> {"flow":..., "role":..., "lang":..., "deadline":..., "msg_id":...}
+# user_id -> {"flow":..., "role":..., "lang":..., "deadline":...}
 STATE = {}
 
 # ================== KEYBOARDS ==================
@@ -204,19 +204,8 @@ def apply_info_block(key: str, lang_label: str | None = None) -> str:
     lang_line = f"\nЯзык: {lang_label}" if lang_label else ""
     return f"{i.get('title', key)}{lang_line}\n{i.get('desc', 'Описание скоро будет.')}\n\nМетодичка: {i.get('guide','—')}"
 
-async def render_screen(user_id: int, chat_id: int, text: str, *, reply_markup=None):
-    st = STATE.setdefault(user_id, {"msg_id": None})
-    msg_id = st.get("msg_id")
-    if msg_id:
-        try:
-            await bot.edit_message_text(text=text, chat_id=chat_id, message_id=msg_id, reply_markup=reply_markup)
-            return
-        except Exception as e:
-            print("Edit failed, fallback to send:", e)
-    sent = await bot.send_message(chat_id, text, reply_markup=reply_markup)
-    st["msg_id"] = sent.message_id
-
 async def schedule_deadline_notify(user_id: int, role_key: str, started_at: datetime, lang_label: str | None = None):
+    """Сообщаем в группу о выдаче теста и шлём напоминание пользователю через N дней."""
     deadline = started_at + timedelta(days=TEST_DEADLINE_DAYS)
     thread_id = ROLE_TOPICS.get(role_key) or None
     title = role_title(role_key)
@@ -253,10 +242,10 @@ async def schedule_deadline_notify(user_id: int, role_key: str, started_at: date
 
 @dp.message(Command("start"))
 async def cmd_start(m: Message):
-    STATE[m.from_user.id] = {"flow": None, "role": None, "lang": None, "deadline": None, "msg_id": None}
-    await render_screen(
-        m.from_user.id, m.chat.id,
-        "Присоединяйся к команде Tales of Kitsune — магия начинается с первой главы.\n\nВыбери раздел:",
+    STATE[m.from_user.id] = {"flow": None, "role": None, "lang": None, "deadline": None}
+    await m.answer(
+        "Присоединяйся к команде Tales of Kitsune — магия начинается с первой главы.\n\n"
+        "Выбери раздел:",
         reply_markup=main_menu()
     )
 
@@ -274,8 +263,7 @@ async def topic_id(m: Message):
 
 @dp.callback_query(F.data == "about")
 async def on_about(c: CallbackQuery):
-    await render_screen(
-        c.from_user.id, c.message.chat.id,
+    await c.message.answer(
         "Tales of Kitsune — команда, которая переводит манхвы с любовью к оригиналу и уважением к читателю.",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="« Назад", callback_data="back:menu"),
@@ -286,83 +274,74 @@ async def on_about(c: CallbackQuery):
 
 @dp.callback_query(F.data == "vacancies")
 async def on_vacancies(c: CallbackQuery):
-    st = STATE.setdefault(c.from_user.id, {})
-    st.update({"flow": "vacancies", "role": None, "lang": None})
-    await render_screen(c.from_user.id, c.message.chat.id, "Выбери специальность:", reply_markup=vacancies_keyboard())
+    STATE[c.from_user.id] = {"flow": "vacancies", "role": None, "lang": None, "deadline": None}
+    await c.message.answer("Выбери специальность:", reply_markup=vacancies_keyboard())
     await c.answer()
 
 @dp.callback_query(F.data == "apply")
 async def on_apply(c: CallbackQuery):
-    st = STATE.setdefault(c.from_user.id, {})
-    st.update({"flow": "apply", "role": None, "lang": None})
-    await render_screen(c.from_user.id, c.message.chat.id, "Выбери специальность для подачи заявки:", reply_markup=apply_roles_keyboard())
+    STATE[c.from_user.id] = {"flow": "apply", "role": None, "lang": None, "deadline": None}
+    await c.message.answer("Выбери специальность для подачи заявки:", reply_markup=apply_roles_keyboard())
     await c.answer()
 
 @dp.callback_query(F.data == "back:menu")
 async def on_back_menu(c: CallbackQuery):
-    st = STATE.setdefault(c.from_user.id, {})
-    st.update({"flow": None, "role": None, "lang": None})
-    await render_screen(c.from_user.id, c.message.chat.id, "Главное меню:", reply_markup=main_menu())
+    STATE[c.from_user.id] = {"flow": None, "role": None, "lang": None, "deadline": None}
+    await c.message.answer("Главное меню:", reply_markup=main_menu())
     await c.answer()
 
 @dp.callback_query(F.data == "back:vacancies")
 async def on_back_vacancies(c: CallbackQuery):
-    st = STATE.setdefault(c.from_user.id, {})
-    st.update({"flow": "vacancies", "role": None, "lang": None})
-    await render_screen(c.from_user.id, c.message.chat.id, "Специальности:", reply_markup=vacancies_keyboard())
+    STATE[c.from_user.id]["flow"] = "vacancies"
+    STATE[c.from_user.id]["role"] = None
+    STATE[c.from_user.id]["lang"] = None
+    await c.message.answer("Специальности:", reply_markup=vacancies_keyboard())
     await c.answer()
 
 @dp.callback_query(F.data == "back:applyroles")
 async def on_back_applyroles(c: CallbackQuery):
-    st = STATE.setdefault(c.from_user.id, {})
-    st.update({"flow": "apply", "role": None, "lang": None})
-    await render_screen(c.from_user.id, c.message.chat.id, "Выбери специальность:", reply_markup=apply_roles_keyboard())
+    STATE[c.from_user.id]["flow"] = "apply"
+    STATE[c.from_user.id]["role"] = None
+    STATE[c.from_user.id]["lang"] = None
+    await c.message.answer("Выбери специальность:", reply_markup=apply_roles_keyboard())
     await c.answer()
 
-# --- Вакансии: показать описание
+# ——— Вакансии: показать описание роли
 @dp.callback_query(F.data.startswith("v:"))
 async def vacancy_show(c: CallbackQuery):
     key = c.data.split(":", 1)[1]
-    st = STATE.setdefault(c.from_user.id, {})
-    st["role"] = key
-    await render_screen(
-        c.from_user.id, c.message.chat.id,
-        role_desc_block(key),
-        reply_markup=back_and_apply_small()
-    )
+    STATE[c.from_user.id]["role"] = key
+    await c.message.answer(role_desc_block(key), reply_markup=back_and_apply_small())
     await c.answer()
 
-# --- Подача: переводчик требует выбор языка, остальные сразу показывают инфо
+# ——— Подача: если роль переводчик — выбираем язык; иначе сразу описание+кнопка теста
 @dp.callback_query(F.data.startswith("a:"))
 async def apply_role_intro(c: CallbackQuery):
     key = c.data.split(":", 1)[1]
-    st = STATE.setdefault(c.from_user.id, {})
-    st["role"] = key
-    st["lang"] = None
+    STATE[c.from_user.id]["role"] = key
+    STATE[c.from_user.id]["lang"] = None
 
     if key == "translator":
-        await render_screen(c.from_user.id, c.message.chat.id, "Выберите язык перевода:", reply_markup=translator_langs_keyboard())
+        await c.message.answer("Выберите язык перевода:", reply_markup=translator_langs_keyboard())
     else:
-        await render_screen(c.from_user.id, c.message.chat.id, apply_info_block(key), reply_markup=start_test_keyboard(key))
+        await c.message.answer(apply_info_block(key), reply_markup=start_test_keyboard(key))
     await c.answer()
 
-# --- Выбран язык переводчика
+# ——— Выбор языка переводчика, дальше всё как раньше, только с языком
 @dp.callback_query(F.data.startswith("a:translator_lang:"))
 async def translator_lang_selected(c: CallbackQuery):
     _, _, lang_code = c.data.split(":", 2)
     lang_label = TRANSLATOR_LANGS.get(lang_code, "—")
-    st = STATE.setdefault(c.from_user.id, {})
-    st["role"] = "translator"
-    st["lang"] = lang_label
+    STATE[c.from_user.id]["role"] = "translator"
+    STATE[c.from_user.id]["lang"] = lang_label
 
-    await render_screen(
-        c.from_user.id, c.message.chat.id,
+    await c.message.answer(
         apply_info_block("translator", lang_label),
         reply_markup=start_test_keyboard("translator", lang_code)
     )
     await c.answer()
 
-# --- Старт теста
+# ——— Старт теста
 @dp.callback_query(F.data.startswith("starttest:"))
 async def start_test(c: CallbackQuery):
     parts = c.data.split(":")
@@ -373,14 +352,12 @@ async def start_test(c: CallbackQuery):
 
     info = ROLE_INFO.get(key, {})
     folder = info.get("test_folder", "—")
-    st = STATE.setdefault(c.from_user.id, {})
-    st["deadline"] = datetime.now(timezone.utc)
+    STATE[c.from_user.id]["deadline"] = datetime.now(timezone.utc)
     if lang_label:
-        st["lang"] = lang_label
+        STATE[c.from_user.id]["lang"] = lang_label
 
-    await render_screen(
-        c.from_user.id, c.message.chat.id,
-        "Заполните анкету (одним сообщением — пункты можно перечислить):\n"
+    await c.message.answer(
+        "Заполните анкету по форме ниже (отправьте одним сообщением — пункты можно перечислить):\n"
         "Имя / Ник\nОпыт (если есть)\nЧасовой пояс\nГотовность по времени\n\n"
         f"Папка с тестовым заданием: {folder}\n"
         f"Дедлайн: {TEST_DEADLINE_DAYS} дня.",
@@ -390,11 +367,11 @@ async def start_test(c: CallbackQuery):
     )
 
     asyncio.create_task(
-        schedule_deadline_notify(c.from_user.id, key, st["deadline"], st.get("lang"))
+        schedule_deadline_notify(c.from_user.id, key, STATE[c.from_user.id]["deadline"], STATE[c.from_user.id].get("lang"))
     )
     await c.answer("Тест выдан")
 
-# --- Админское PM из группы
+# ——— Админское PM из группы
 @dp.message(Command("pm"))
 async def admin_pm(m: Message, command: CommandObject):
     if m.chat.type not in ("supergroup", "group"):
@@ -419,7 +396,7 @@ async def admin_pm(m: Message, command: CommandObject):
     except Exception as e:
         await m.reply(f"Не удалось отправить: {e}")
 
-# --- Приём контента заявки и пересылка в нужную тему
+# ——— Приём контента заявки и пересылка в нужную тему
 @dp.message()
 async def collect_and_forward(m: Message):
     if m.text and m.text.startswith("/"):
@@ -443,10 +420,10 @@ async def collect_and_forward(m: Message):
             else:
                 await bot.send_message(GROUP_ID, header)
                 await m.copy_to(GROUP_ID)
-        await bot.send_message(m.chat.id, "Принято. Сообщение отправлено кураторам.")
+        await m.answer("Принято. Сообщение отправлено кураторам.")
     except Exception as e:
         print("Forward error:", e)
-        await bot.send_message(m.chat.id, "Не удалось отправить кураторам. Проверьте позже.")
+        await m.answer("Не удалось отправить кураторам. Проверьте позже.")
 
 # ================== FAKE HTTP (для Render/Uptime) ==================
 
