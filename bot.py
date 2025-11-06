@@ -1,77 +1,387 @@
-# bot.py
 import os
 import asyncio
+from datetime import datetime, timedelta, timezone
 from threading import Thread
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 from aiogram import Bot, Dispatcher, F
-from aiogram.filters import Command
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message
+from aiogram.filters import Command, CommandObject
+from aiogram.types import (
+    InlineKeyboardMarkup, InlineKeyboardButton,
+    Message, CallbackQuery
+)
 
-# --- конфиг ---
+# ============ CONFIG ============
+
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 if not BOT_TOKEN:
-    raise RuntimeError("BOT_TOKEN не задан")
+    raise RuntimeError("BOT_TOKEN is not set")
 
-# Render может подставлять PORT сам; если нет, берём 10000 (мы задали его в env)
+# супергруппа с включенными темами (форум)
+GROUP_ID = int(os.getenv("GROUP_ID", "0"))            # пример: -1001234567890
+# comma-separated admin user ids who can /pm from the group
+ADMIN_IDS = {int(x) for x in os.getenv("ADMIN_IDS", "").split(",") if x.strip().isdigit()}
+
+# ID тем (вкладок) по ролям — можно задавать через env или заполнить числом
+ROLE_TOPICS = {
+    "translator": int(os.getenv("THREAD_TRANSLATOR_ID", "0")),
+    "editor":     int(os.getenv("THREAD_EDITOR_ID", "0")),
+    "cleaner":    int(os.getenv("THREAD_CLEAN_ID", "0")),
+    "typesetter": int(os.getenv("THREAD_TYPES_ID", "0")),
+    "gluer":      int(os.getenv("THREAD_GLUE_ID", "0")),
+    "curator":    int(os.getenv("THREAD_CURATOR_ID", "0")),
+    "beta":       int(os.getenv("THREAD_BETA_ID", "0")),
+    "typecheck":  int(os.getenv("THREAD_TYPECHECK_ID", "0")),
+}
+
+# ссылки на методички и тестовые папки
+# заполни на свои
+ROLE_INFO = {
+    # ключи строго как в роли ниже
+    "translator": {
+        "title": "Переводчик",
+        "desc": "Переводит реплики и онимы, соблюдая контекст и тон.",
+        "guide": "https://example.com/translator_guide",
+        "test_folder": "https://drive.google.com/translator_test"
+    },
+    "editor": {
+        "title": "Редактор",
+        "desc": "Правит текст после перевода, следит за стилистикой и логикой.",
+        "guide": "https://example.com/editor_guide",
+        "test_folder": "https://drive.google.com/editor_test"
+    },
+    "cleaner": {
+        "title": "Клинер",
+        "desc": "Чистит фон и пузырей, готовит страницу к тайпу.",
+        "guide": "https://example.com/cleaner_guide",
+        "test_folder": "https://drive.google.com/cleaner_test"
+    },
+    "typesetter": {
+        "title": "Тайпер",
+        "desc": "Ставит текст, шрифты и эффекты по гайдам.",
+        "guide": "https://example.com/typesetter_guide",
+        "test_folder": "https://drive.google.com/typesetter_test"
+    },
+    "gluer": {
+        "title": "Склейщик",
+        "desc": "Собирает длинные вертикальные главы/панорамы из кусков.",
+        "guide": "https://example.com/gluer_guide",
+        "test_folder": "https://drive.google.com/gluer_test"
+    },
+    "curator": {
+        "title": "Куратор",
+        "desc": "Ведет процесс, раздает задачи, сверяет дедлайны.",
+        "guide": "https://example.com/curator_guide",
+        "test_folder": "https://drive.google.com/curator_test"
+    },
+    "beta": {
+        "title": "Бета-ридер",
+        "desc": "Читает главы до релиза, ловит шероховатости.",
+        "guide": "https://example.com/beta_guide",
+        "test_folder": "https://drive.google.com/beta_test"
+    },
+    "typecheck": {
+        "title": "Тайп-чекер",
+        "desc": "Проверяет соответствие тайпа гайдам и аккуратность.",
+        "guide": "https://example.com/typecheck_guide",
+        "test_folder": "https://drive.google.com/typecheck_test"
+    },
+}
+
+# длительность дедлайна для теста
+TEST_DEADLINE_DAYS = int(os.getenv("TEST_DEADLINE_DAYS", "3"))
+
+# фиктивный http для Render Web Service
 PORT = int(os.getenv("PORT", "10000"))
 
-bot = Bot(token=BOT_TOKEN)
+# ============ BOT CORE ============
+
+bot = Bot(BOT_TOKEN)
 dp = Dispatcher()
 
-# --- клавиатура ---
-def start_keyboard():
+# состояние пользователей (простая in-memory)
+# user_id -> {
+#   "flow": "apply"|"vacancies"|None,
+#   "role": "translator"|...|None,
+#   "deadline": datetime|None
+# }
+STATE = {}
+
+# ============ KEYBOARDS ============
+
+def main_menu():
     return InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(text="🎨 Вакансии", callback_data="vacancies"),
-            InlineKeyboardButton(text="🦊 О команде", callback_data="about")
+            InlineKeyboardButton(text="🦊 О команде", callback_data="about"),
+        ],
+        [InlineKeyboardButton(text="📨 Подать заявку", callback_data="apply")]
+    ])
+
+def vacancies_keyboard():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="Переводчик", callback_data="v:translator"),
+            InlineKeyboardButton(text="Редактор", callback_data="v:editor"),
         ],
         [
-            InlineKeyboardButton(text="📨 Подать заявку", callback_data="apply")
+            InlineKeyboardButton(text="Клинер", callback_data="v:cleaner"),
+            InlineKeyboardButton(text="Тайпер", callback_data="v:typesetter"),
+        ],
+        [
+            InlineKeyboardButton(text="Склейщик", callback_data="v:gluer"),
+            InlineKeyboardButton(text="Куратор", callback_data="v:curator"),
+        ],
+        [
+            InlineKeyboardButton(text="Бета-ридер", callback_data="v:beta"),
+            InlineKeyboardButton(text="Тайп-чекер", callback_data="v:typecheck"),
+        ],
+        [InlineKeyboardButton(text="« Назад", callback_data="back:menu"),
+         InlineKeyboardButton(text="Подать заявку", callback_data="apply")]
+    ])
+
+def back_and_apply_small():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="« Назад", callback_data="back:vacancies"),
+            InlineKeyboardButton(text="Подать заявку", callback_data="apply")
         ]
     ])
 
-# --- хэндлеры ---
-@dp.message(Command("start"))
-async def start_cmd(m: Message):
-    text = (
-        "Присоединяйся к команде Tales of Kitsune — магия начинается с первой главы.\n\n"
-        "Выбери нужный раздел ниже:"
-    )
-    await m.answer(text, reply_markup=start_keyboard())
+def apply_roles_keyboard():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="Переводчик", callback_data="a:translator"),
+            InlineKeyboardButton(text="Редактор", callback_data="a:editor"),
+        ],
+        [
+            InlineKeyboardButton(text="Клинер", callback_data="a:cleaner"),
+            InlineKeyboardButton(text="Тайпер", callback_data="a:typesetter"),
+        ],
+        [
+            InlineKeyboardButton(text="Склейщик", callback_data="a:gluer"),
+            InlineKeyboardButton(text="Куратор", callback_data="a:curator"),
+        ],
+        [
+            InlineKeyboardButton(text="Бета-ридер", callback_data="a:beta"),
+            InlineKeyboardButton(text="Тайп-чекер", callback_data="a:typecheck"),
+        ],
+        [InlineKeyboardButton(text="« Назад", callback_data="back:menu")]
+    ])
 
-@dp.callback_query(F.data == "vacancies")
-async def show_vacancies(call):
-    await call.message.answer(
-        "🌸 Доступные направления:\n\n"
-        "• Переводчик (корейский / английский)\n"
-        "• Редактор\n"
-        "• Тайпер\n"
-        "• Клинер\n"
-        "• Корректор\n"
-        "• Дизайнер обложек\n\n"
-        "Если хочешь узнать подробнее — нажми «Подать заявку»."
+def start_test_keyboard(role_key: str):
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Пройти тестовое задание", callback_data=f"starttest:{role_key}")],
+        [InlineKeyboardButton(text="« Назад", callback_data="back:applyroles")]
+    ])
+
+# ============ HELPERS ============
+
+def role_title(key: str) -> str:
+    return ROLE_INFO.get(key, {}).get("title", key)
+
+def role_desc_block(key: str) -> str:
+    info = ROLE_INFO.get(key) or {}
+    title = info.get("title", key)
+    desc = info.get("desc", "Описание скоро будет.")
+    return f"**{title}**\n{desc}"
+
+def apply_info_block(key: str) -> str:
+    info = ROLE_INFO.get(key) or {}
+    title = info.get("title", key)
+    desc = info.get("desc", "Описание скоро будет.")
+    guide = info.get("guide", "—")
+    return (
+        f"**{title}**\n{desc}\n\n"
+        f"Методичка: {guide}"
+    )
+
+async def schedule_deadline_notify(user_id: int, role_key: str, started_at: datetime):
+    """Простой таймер дедлайна. На старте сообщает в группу, через 3 дня — напоминает."""
+    deadline = started_at + timedelta(days=TEST_DEADLINE_DAYS)
+    # сообщим в группу о выдаче теста
+    thread_id = ROLE_TOPICS.get(role_key) or None
+    title = role_title(role_key)
+    try:
+        text = (
+            f"⏳ Выдано тестовое задание\n"
+            f"Роль: {title}\n"
+            f"Пользователь: id {user_id}\n"
+            f"Дедлайн: {deadline.strftime('%Y-%m-%d %H:%M %Z') or deadline.isoformat()}"
+        )
+        if GROUP_ID:
+            if thread_id:
+                await bot.send_message(GROUP_ID, text, message_thread_id=thread_id)
+            else:
+                await bot.send_message(GROUP_ID, text)
+    except Exception as e:
+        print("Error posting assignment:", e)
+
+    # ждём до дедлайна и напоминаем (простая реализация)
+    now = datetime.now(timezone.utc)
+    delta = (deadline.replace(tzinfo=timezone.utc) - now).total_seconds()
+    if delta > 0:
+        await asyncio.sleep(delta)
+        try:
+            await bot.send_message(user_id, f"Напоминание: срок сдачи теста по роли «{title}» истёк. "
+                                            f"Если нужно продление, ответьте на это сообщение.")
+        except Exception as e:
+            print("Notify user failed:", e)
+
+# ============ HANDLERS ============
+
+@dp.message(Command("start"))
+async def cmd_start(m: Message):
+    STATE[m.from_user.id] = {"flow": None, "role": None, "deadline": None}
+    await m.answer(
+        "Присоединяйся к команде Tales of Kitsune — магия начинается с первой главы.\n\n"
+        "Выбери раздел:",
+        reply_markup=main_menu()
     )
 
 @dp.callback_query(F.data == "about")
-async def show_about(call):
-    await call.message.answer(
-        "🦊 Tales of Kitsune — команда, создающая качественные переводы и оформление манхв.\n\n"
-        "Мы объединяем переводчиков, редакторов и дизайнеров, чтобы оживлять истории с атмосферой и вниманием к деталям."
+async def on_about(c: CallbackQuery):
+    await c.message.answer(
+        "Tales of Kitsune — команда, которая переводит манхвы с любовью к оригиналу и уважением к читателю.",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="« Назад", callback_data="back:menu"),
+             InlineKeyboardButton(text="Подать заявку", callback_data="apply")]
+        ])
     )
+    await c.answer()
+
+@dp.callback_query(F.data == "vacancies")
+async def on_vacancies(c: CallbackQuery):
+    STATE[c.from_user.id] = {"flow": "vacancies", "role": None, "deadline": None}
+    await c.message.answer("Выбери специальность:", reply_markup=vacancies_keyboard())
+    await c.answer()
 
 @dp.callback_query(F.data == "apply")
-async def show_apply(call):
-    await call.message.answer(
-        "📨 Чтобы подать заявку, отправь сюда сообщение в формате:\n\n"
-        "Имя / Никнейм\n"
-        "Возраст (по желанию)\n"
-        "Желаемая роль\n"
-        "Краткое описание опыта (если есть)\n\n"
-        "После этого куратор свяжется с тобой для выдачи тестового задания."
-    )
+async def on_apply(c: CallbackQuery):
+    STATE[c.from_user.id] = {"flow": "apply", "role": None, "deadline": None}
+    await c.message.answer("Выбери специальность для подачи заявки:", reply_markup=apply_roles_keyboard())
+    await c.answer()
 
-# --- простейший HTTP-сервер (чтобы Render видел открытый порт) ---
+@dp.callback_query(F.data == "back:menu")
+async def on_back_menu(c: CallbackQuery):
+    STATE[c.from_user.id] = {"flow": None, "role": None, "deadline": None}
+    await c.message.answer("Главное меню:", reply_markup=main_menu())
+    await c.answer()
+
+@dp.callback_query(F.data == "back:vacancies")
+async def on_back_vacancies(c: CallbackQuery):
+    STATE[c.from_user.id]["flow"] = "vacancies"
+    STATE[c.from_user.id]["role"] = None
+    await c.message.answer("Специальности:", reply_markup=vacancies_keyboard())
+    await c.answer()
+
+@dp.callback_query(F.data == "back:applyroles")
+async def on_back_applyroles(c: CallbackQuery):
+    STATE[c.from_user.id]["flow"] = "apply"
+    STATE[c.from_user.id]["role"] = None
+    await c.message.answer("Выбери специальность:", reply_markup=apply_roles_keyboard())
+    await c.answer()
+
+# ——— Вакансии: показать описание роли
+@dp.callback_query(F.data.startswith("v:"))
+async def vacancy_show(c: CallbackQuery):
+    key = c.data.split(":", 1)[1]
+    STATE[c.from_user.id]["role"] = key
+    await c.message.answer(role_desc_block(key), parse_mode="Markdown", reply_markup=back_and_apply_small())
+    await c.answer()
+
+# ——— Подача: показать роль + методичка + кнопка "Пройти тестовое задание"
+@dp.callback_query(F.data.startswith("a:"))
+async def apply_role_intro(c: CallbackQuery):
+    key = c.data.split(":", 1)[1]
+    STATE[c.from_user.id]["role"] = key
+    await c.message.answer(apply_info_block(key), parse_mode="Markdown",
+                           reply_markup=start_test_keyboard(key))
+    await c.answer()
+
+# ——— Старт теста: сообщаем, даем ссылку на папку и запускаем дедлайн
+@dp.callback_query(F.data.startswith("starttest:"))
+async def start_test(c: CallbackQuery):
+    key = c.data.split(":", 1)[1]
+    info = ROLE_INFO.get(key, {})
+    folder = info.get("test_folder", "—")
+    STATE[c.from_user.id]["deadline"] = datetime.now(timezone.utc)
+    await c.message.answer(
+        "Заполните анкету по форме ниже (отправьте сообщением — пункты можно перечислить):\n"
+        "Имя / Ник\nОпыт (если есть)\nЧасовой пояс\nГотовность по времени\n\n"
+        f"Папка с тестовым заданием: {folder}\n"
+        f"Дедлайн: {TEST_DEADLINE_DAYS} дня.",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="« Назад", callback_data="back:applyroles")]
+        ])
+    )
+    # асинхронно создаем напоминание
+    asyncio.create_task(schedule_deadline_notify(c.from_user.id, key, STATE[c.from_user.id]["deadline"]))
+    await c.answer("Тест выдан")
+
+# ——— Прием сообщений/файлов в рамках заявки: пересылка в тему по роли
+@dp.message()
+async def collect_and_forward(m: Message):
+    st = STATE.get(m.from_user.id)
+    if not st or not st.get("role"):
+        return  # не в процессе подачи
+    role = st["role"]
+    title = role_title(role)
+    thread_id = ROLE_TOPICS.get(role) or None
+
+    header = (
+        f"📥 Заявка от @{m.from_user.username or '—'} (id {m.from_user.id})\n"
+        f"Роль: {title}"
+    )
+    try:
+        if GROUP_ID:
+            if thread_id:
+                await bot.send_message(GROUP_ID, header, message_thread_id=thread_id)
+                await m.copy_to(GROUP_ID, message_thread_id=thread_id)
+            else:
+                await bot.send_message(GROUP_ID, header)
+                await m.copy_to(GROUP_ID)
+        await m.answer("Принято. Сообщение отправлено кураторам.")
+    except Exception as e:
+        print("Forward error:", e)
+        await m.answer("Не удалось отправить кураторам. Проверьте позже.")
+
+# ——— Service: получить ID темы (вкладки) внутри группы
+@dp.message(Command("topicid"))
+async def topic_id(m: Message):
+    if getattr(m, "is_topic_message", False):
+        await m.answer(f"ID этой темы: {m.message_thread_id}")
+    else:
+        await m.answer("Отправьте команду внутри нужной темы (вкладки) группы.")
+
+# ——— Админское PM из группы: /pm <user_id> текст…
+@dp.message(Command("pm"))
+async def admin_pm(m: Message, command: CommandObject):
+    # только из группы с правами админа
+    if m.chat.type not in ("supergroup", "group"):
+        return
+    if ADMIN_IDS and m.from_user.id not in ADMIN_IDS:
+        return
+
+    if not command.args:
+        await m.reply("Использование: /pm <user_id> <текст>")
+        return
+    try:
+        parts = command.args.split(maxsplit=1)
+        user_id = int(parts[0])
+        text = parts[1] if len(parts) > 1 else ""
+    except Exception:
+        await m.reply("Неверный формат. Пример: /pm 12345678 Привет!")
+        return
+
+    try:
+        await bot.send_message(user_id, f"Сообщение от куратора:\n\n{text}")
+        await m.reply("Отправлено.")
+    except Exception as e:
+        await m.reply(f"Не удалось отправить: {e}")
+
+# ============ FAKE HTTP FOR RENDER ============
+
 class _Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path in ("/", "/healthz"):
@@ -82,26 +392,19 @@ class _Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
         else:
-            self.send_response(404)
-            self.end_headers()
-
-    # убираем спам в логи
-    def log_message(self, fmt, *args): 
+            self.send_response(404); self.end_headers()
+    def log_message(self, fmt, *args):  # silence
         return
 
-def start_http_server():
-    server = HTTPServer(("0.0.0.0", PORT), _Handler)
-    print(f"HTTP server started on port {PORT}")
-    server.serve_forever()
+def start_http():
+    srv = HTTPServer(("0.0.0.0", PORT), _Handler)
+    print(f"HTTP server on {PORT}")
+    srv.serve_forever()
 
 async def main():
-    # поднимем HTTP-порт в отдельном потоке
-    Thread(target=start_http_server, daemon=True).start()
-    print("Starting Telegram bot polling...")
+    Thread(target=start_http, daemon=True).start()
+    print("Bot polling…")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        print("Stopping...")
+    asyncio.run(main())
