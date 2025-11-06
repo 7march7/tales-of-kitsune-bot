@@ -11,17 +11,22 @@ from aiogram.types import (
     Message, CallbackQuery
 )
 
-# ============ CONFIG ============
+# ================== CONFIG ==================
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 if not BOT_TOKEN:
     raise RuntimeError("BOT_TOKEN is not set")
 
-GROUP_ID = int(os.getenv("GROUP_ID", "0"))            # пример: -1001234567890
+# ID супергруппы (вид -100...)
+GROUP_ID = int(os.getenv("GROUP_ID", "0"))
+
+# Админы, которым разрешён /pm в группе
 ADMIN_IDS = {int(x) for x in os.getenv("ADMIN_IDS", "").split(",") if x.strip().isdigit()}
 
+# ID ВКЛАДОК (тем форума) по ролям
+# ВАЖНО: для переводчиков один общий ID темы (все языки летят туда)
 ROLE_TOPICS = {
-    "translator": int(os.getenv("THREAD_TRANSLATOR_ID", "0")),
+    "translator": int(os.getenv("THREAD_TRANSLATOR_ID", "0")),  # общая тема «Переводчики»
     "editor":     int(os.getenv("THREAD_EDITOR_ID", "0")),
     "cleaner":    int(os.getenv("THREAD_CLEAN_ID", "0")),
     "typesetter": int(os.getenv("THREAD_TYPES_ID", "0")),
@@ -31,6 +36,7 @@ ROLE_TOPICS = {
     "typecheck":  int(os.getenv("THREAD_TYPECHECK_ID", "0")),
 }
 
+# Справочная инфа по ролям (линки подставь свои)
 ROLE_INFO = {
     "translator": {
         "title": "Переводчик",
@@ -82,7 +88,7 @@ ROLE_INFO = {
     },
 }
 
-# языки для переводчика
+# Подъязыки для переводчика (в одну тему)
 TRANSLATOR_LANGS = {
     "en": "Английский",
     "es": "Испанский",
@@ -91,17 +97,18 @@ TRANSLATOR_LANGS = {
 }
 
 TEST_DEADLINE_DAYS = int(os.getenv("TEST_DEADLINE_DAYS", "3"))
-PORT = int(os.getenv("PORT", "10000"))
+PORT = int(os.getenv("PORT", "10000"))  # для Render/Uptime
 
-# ============ BOT CORE ============
+# ================== BOT CORE ==================
 
 bot = Bot(BOT_TOKEN)
 dp = Dispatcher()
 
-# user state: {"flow": ..., "role": ..., "lang": label|None, "deadline": dt|None, "msg_id": int|None}
+# Простейшее состояние
+# user_id -> {"flow":..., "role":..., "lang":..., "deadline":..., "msg_id":...}
 STATE = {}
 
-# ============ KEYBOARDS ============
+# ================== KEYBOARDS ==================
 
 def main_menu():
     return InlineKeyboardMarkup(inline_keyboard=[
@@ -164,48 +171,41 @@ def apply_roles_keyboard():
     ])
 
 def translator_langs_keyboard():
-    rows = [
+    return InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="Английский",     callback_data="a:translator_lang:en"),
-            InlineKeyboardButton(text="Испанский",      callback_data="a:translator_lang:es"),
+            InlineKeyboardButton(text="Английский",    callback_data="a:translator_lang:en"),
+            InlineKeyboardButton(text="Испанский",     callback_data="a:translator_lang:es"),
         ],
         [
-            InlineKeyboardButton(text="Корейский",      callback_data="a:translator_lang:ko"),
-            InlineKeyboardButton(text="Индонезийский",  callback_data="a:translator_lang:id"),
+            InlineKeyboardButton(text="Корейский",     callback_data="a:translator_lang:ko"),
+            InlineKeyboardButton(text="Индонезийский", callback_data="a:translator_lang:id"),
         ],
         [InlineKeyboardButton(text="« Назад", callback_data="back:applyroles")]
-    ]
-    return InlineKeyboardMarkup(inline_keyboard=rows)
+    ])
 
 def start_test_keyboard(role_key: str, lang_code: str | None = None):
-    # если язык выбран — пробрасываем его в callback
     suffix = f":{lang_code}" if lang_code else ""
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Пройти тестовое задание", callback_data=f"starttest:{role_key}{suffix}")],
         [InlineKeyboardButton(text="« Назад", callback_data="back:applyroles")]
     ])
 
-# ============ HELPERS ============
+# ================== HELPERS ==================
 
 def role_title(key: str) -> str:
     return ROLE_INFO.get(key, {}).get("title", key)
 
 def role_desc_block(key: str) -> str:
-    info = ROLE_INFO.get(key) or {}
-    title = info.get("title", key)
-    desc = info.get("desc", "Описание скоро будет.")
-    return f"{title}\n{desc}"
+    i = ROLE_INFO.get(key) or {}
+    return f"{i.get('title', key)}\n{i.get('desc', 'Описание скоро будет.')}"
 
 def apply_info_block(key: str, lang_label: str | None = None) -> str:
-    info = ROLE_INFO.get(key) or {}
-    title = info.get("title", key)
-    desc = info.get("desc", "Описание скоро будет.")
-    guide = info.get("guide", "—")
+    i = ROLE_INFO.get(key) or {}
     lang_line = f"\nЯзык: {lang_label}" if lang_label else ""
-    return f"{title}{lang_line}\n{desc}\n\nМетодичка: {guide}"
+    return f"{i.get('title', key)}{lang_line}\n{i.get('desc', 'Описание скоро будет.')}\n\nМетодичка: {i.get('guide','—')}"
 
 async def render_screen(user_id: int, chat_id: int, text: str, *, reply_markup=None):
-    st = STATE.setdefault(user_id, {"flow": None, "role": None, "lang": None, "deadline": None, "msg_id": None})
+    st = STATE.setdefault(user_id, {"msg_id": None})
     msg_id = st.get("msg_id")
     if msg_id:
         try:
@@ -217,12 +217,10 @@ async def render_screen(user_id: int, chat_id: int, text: str, *, reply_markup=N
     st["msg_id"] = sent.message_id
 
 async def schedule_deadline_notify(user_id: int, role_key: str, started_at: datetime, lang_label: str | None = None):
-    """Сообщение в группу при выдаче теста и напоминание пользователю по дедлайну."""
     deadline = started_at + timedelta(days=TEST_DEADLINE_DAYS)
     thread_id = ROLE_TOPICS.get(role_key) or None
     title = role_title(role_key)
     lang_line = f"\nЯзык: {lang_label}" if lang_label else ""
-
     try:
         text = (
             "⏳ Выдано тестовое задание\n"
@@ -238,6 +236,7 @@ async def schedule_deadline_notify(user_id: int, role_key: str, started_at: date
     except Exception as e:
         print("Error posting assignment:", e)
 
+    # напоминалка пользователю
     now = datetime.now(timezone.utc)
     delta = (deadline.replace(tzinfo=timezone.utc) - now).total_seconds()
     if delta > 0:
@@ -250,7 +249,7 @@ async def schedule_deadline_notify(user_id: int, role_key: str, started_at: date
         except Exception as e:
             print("Notify user failed:", e)
 
-# ============ HANDLERS ============
+# ================== HANDLERS ==================
 
 @dp.message(Command("start"))
 async def cmd_start(m: Message):
@@ -264,14 +263,14 @@ async def cmd_start(m: Message):
 @dp.message(Command("cancel"))
 async def cancel(m: Message):
     STATE.pop(m.from_user.id, None)
-    await m.answer("Окей. Режим подачи заявки отключён. Набери /start, чтобы начать заново.")
+    await m.answer("Окей. Режим подачи заявки сброшен. /start чтобы начать заново.")
 
 @dp.message(Command("topicid"))
 async def topic_id(m: Message):
     if getattr(m, "is_topic_message", False):
         await m.answer(f"ID этой темы: {m.message_thread_id}")
     else:
-        await m.answer("Отправьте команду /topicid внутри нужной темы (вкладки) группы.")
+        await m.answer("Отправьте /topicid внутри нужной темы (вкладки) группы.")
 
 @dp.callback_query(F.data == "about")
 async def on_about(c: CallbackQuery):
@@ -333,7 +332,7 @@ async def vacancy_show(c: CallbackQuery):
     )
     await c.answer()
 
-# --- Подача: если выбран переводчик, просим выбрать язык; иначе — сразу экран роли
+# --- Подача: переводчик требует выбор языка, остальные сразу показывают инфо
 @dp.callback_query(F.data.startswith("a:"))
 async def apply_role_intro(c: CallbackQuery):
     key = c.data.split(":", 1)[1]
@@ -342,20 +341,12 @@ async def apply_role_intro(c: CallbackQuery):
     st["lang"] = None
 
     if key == "translator":
-        await render_screen(
-            c.from_user.id, c.message.chat.id,
-            "Выберите язык перевода:",
-            reply_markup=translator_langs_keyboard()
-        )
+        await render_screen(c.from_user.id, c.message.chat.id, "Выберите язык перевода:", reply_markup=translator_langs_keyboard())
     else:
-        await render_screen(
-            c.from_user.id, c.message.chat.id,
-            apply_info_block(key),
-            reply_markup=start_test_keyboard(key)
-        )
+        await render_screen(c.from_user.id, c.message.chat.id, apply_info_block(key), reply_markup=start_test_keyboard(key))
     await c.answer()
 
-# --- Выбор языка переводчика
+# --- Выбран язык переводчика
 @dp.callback_query(F.data.startswith("a:translator_lang:"))
 async def translator_lang_selected(c: CallbackQuery):
     _, _, lang_code = c.data.split(":", 2)
@@ -375,7 +366,6 @@ async def translator_lang_selected(c: CallbackQuery):
 @dp.callback_query(F.data.startswith("starttest:"))
 async def start_test(c: CallbackQuery):
     parts = c.data.split(":")
-    # варианты: ['starttest','role'] или ['starttest','role','lang']
     key = parts[1]
     lang_label = None
     if len(parts) >= 3:
@@ -429,7 +419,7 @@ async def admin_pm(m: Message, command: CommandObject):
     except Exception as e:
         await m.reply(f"Не удалось отправить: {e}")
 
-# --- Прием контента в рамках заявки и пересылка в тему
+# --- Приём контента заявки и пересылка в нужную тему
 @dp.message()
 async def collect_and_forward(m: Message):
     if m.text and m.text.startswith("/"):
@@ -442,12 +432,9 @@ async def collect_and_forward(m: Message):
     role = st["role"]
     title = role_title(role)
     lang_line = f"\nЯзык: {st.get('lang')}" if st.get("lang") else ""
-    thread_id = ROLE_TOPICS.get(role) or None
+    thread_id = ROLE_TOPICS.get(role) or None   # для translator — общий ID темы «Переводчики»
 
-    header = (
-        f"📥 Заявка от @{m.from_user.username or '—'} (id {m.from_user.id})\n"
-        f"Роль: {title}{lang_line}"
-    )
+    header = f"📥 Заявка от @{m.from_user.username or '—'} (id {m.from_user.id})\nРоль: {title}{lang_line}"
     try:
         if GROUP_ID:
             if thread_id:
@@ -456,13 +443,12 @@ async def collect_and_forward(m: Message):
             else:
                 await bot.send_message(GROUP_ID, header)
                 await m.copy_to(GROUP_ID)
-
         await bot.send_message(m.chat.id, "Принято. Сообщение отправлено кураторам.")
     except Exception as e:
         print("Forward error:", e)
         await bot.send_message(m.chat.id, "Не удалось отправить кураторам. Проверьте позже.")
 
-# ============ FAKE HTTP FOR RENDER ============
+# ================== FAKE HTTP (для Render/Uptime) ==================
 
 class _Handler(BaseHTTPRequestHandler):
     def _ok(self):
@@ -479,15 +465,15 @@ class _Handler(BaseHTTPRequestHandler):
         else:
             self.send_response(404); self.end_headers()
 
+    # Для UptimeRobot (бесплатный HEAD)
     def do_HEAD(self):
         if self.path in ("/", "/healthz"):
-            self._ok()  # то же самое, но без тела
+            self._ok()
         else:
             self.send_response(404); self.end_headers()
 
     def log_message(self, fmt, *args):
         return
-
 
 def start_http():
     srv = HTTPServer(("0.0.0.0", PORT), _Handler)
@@ -495,6 +481,7 @@ def start_http():
     srv.serve_forever()
 
 async def main():
+    # гасим вебхуки, чтобы polling не конфликтовал
     try:
         await bot.delete_webhook(drop_pending_updates=True)
     except Exception:
