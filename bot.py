@@ -22,7 +22,7 @@ GROUP_ID = int(os.getenv("GROUP_ID", "0"))            # пример: -100123456
 # comma-separated admin user ids who can /pm from the group
 ADMIN_IDS = {int(x) for x in os.getenv("ADMIN_IDS", "").split(",") if x.strip().isdigit()}
 
-# ID тем (вкладок) по ролям — можно задавать через env или заполнить числом
+# ID тем (вкладок) по ролям — задаются через env
 ROLE_TOPICS = {
     "translator": int(os.getenv("THREAD_TRANSLATOR_ID", "0")),
     "editor":     int(os.getenv("THREAD_EDITOR_ID", "0")),
@@ -34,7 +34,7 @@ ROLE_TOPICS = {
     "typecheck":  int(os.getenv("THREAD_TYPECHECK_ID", "0")),
 }
 
-# ссылки на методички и тестовые папки (замени на свои при желании)
+# ссылки на методички и тестовые папки (поставь свои при желании)
 ROLE_INFO = {
     "translator": {
         "title": "Переводчик",
@@ -97,7 +97,7 @@ PORT = int(os.getenv("PORT", "10000"))
 bot = Bot(BOT_TOKEN)
 dp = Dispatcher()
 
-# состояние пользователей (простая in-memory)
+# состояние пользователей (in-memory):
 # user_id -> {"flow": "...", "role": "...", "deadline": datetime|None, "msg_id": int|None}
 STATE = {}
 
@@ -240,7 +240,7 @@ async def render_screen(user_id: int, chat_id: int, text: str, *, reply_markup=N
             )
             return
         except Exception as e:
-            # если не удалось отредактировать (например, было удалено вручную), отправим новое
+            # если не удалось отредактировать (удалено и т.п.), шлём новое
             print("Edit failed, fallback to send:", e)
 
     sent = await bot.send_message(chat_id, text, reply_markup=reply_markup, parse_mode=parse_mode)
@@ -353,41 +353,19 @@ async def start_test(c: CallbackQuery):
     asyncio.create_task(schedule_deadline_notify(c.from_user.id, key, st["deadline"]))
     await c.answer("Тест выдан")
 
-# ——— Прием сообщений/файлов в рамках заявки: пересылка в тему по роли
-@dp.message()
-async def collect_and_forward(m: Message):
-    st = STATE.get(m.from_user.id)
-    if not st or not st.get("role"):
-        return  # не в процессе подачи
-    role = st["role"]
-    title = role_title(role)
-    thread_id = ROLE_TOPICS.get(role) or None
+# ===== СЕРВИСНЫЕ КОМАНДЫ (ставим выше коллектора) =====
 
-    header = (
-        f"📥 Заявка от @{m.from_user.username or '—'} (id {m.from_user.id})\n"
-        f"Роль: {title}"
-    )
-    try:
-        if GROUP_ID:
-            if thread_id:
-                await bot.send_message(GROUP_ID, header, message_thread_id=thread_id)
-                await m.copy_to(GROUP_ID, message_thread_id=thread_id)
-            else:
-                await bot.send_message(GROUP_ID, header)
-                await m.copy_to(GROUP_ID)
-
-        await bot.send_message(m.chat.id, "Принято. Сообщение отправлено кураторам.")
-    except Exception as e:
-        print("Forward error:", e)
-        await bot.send_message(m.chat.id, "Не удалось отправить кураторам. Проверьте позже.")
-
-# ——— Service: получить ID темы (вкладки) внутри группы
 @dp.message(Command("topicid"))
 async def topic_id(m: Message):
     if getattr(m, "is_topic_message", False):
         await m.answer(f"ID этой темы: {m.message_thread_id}")
     else:
         await m.answer("Отправьте команду внутри нужной темы (вкладки) группы.")
+
+@dp.message(Command("cancel"))
+async def cancel(m: Message):
+    STATE.pop(m.from_user.id, None)
+    await m.answer("Окей. Режим подачи заявки отключён.")
 
 # ——— Админское PM из группы: /pm <user_id> текст…
 @dp.message(Command("pm"))
@@ -414,6 +392,40 @@ async def admin_pm(m: Message, command: CommandObject):
     except Exception as e:
         await m.reply(f"Не удалось отправить: {e}")
 
+# ——— Прием сообщений/файлов в рамках заявки: пересылка в тему по роли
+#     игнорируем команды (чтобы /topicid не ловился как "заявка")
+@dp.message(~Command())
+async def collect_and_forward(m: Message):
+    # дополнительная страховка, если инверсия Command() вдруг не сработает:
+    if m.text and m.text.startswith("/"):
+        return
+
+    st = STATE.get(m.from_user.id)
+    if not st or not st.get("role"):
+        return  # не в процессе подачи
+
+    role = st["role"]
+    title = role_title(role)
+    thread_id = ROLE_TOPICS.get(role) or None
+
+    header = (
+        f"📥 Заявка от @{m.from_user.username or '—'} (id {m.from_user.id})\n"
+        f"Роль: {title}"
+    )
+    try:
+        if GROUP_ID:
+            if thread_id:
+                await bot.send_message(GROUP_ID, header, message_thread_id=thread_id)
+                await m.copy_to(GROUP_ID, message_thread_id=thread_id)
+            else:
+                await bot.send_message(GROUP_ID, header)
+                await m.copy_to(GROUP_ID)
+
+        await bot.send_message(m.chat.id, "Принято. Сообщение отправлено кураторам.")
+    except Exception as e:
+        print("Forward error:", e)
+        await bot.send_message(m.chat.id, "Не удалось отправить кураторам. Проверьте позже.")
+
 # ============ FAKE HTTP FOR RENDER ============
 
 class _Handler(BaseHTTPRequestHandler):
@@ -436,13 +448,13 @@ def start_http():
     srv.serve_forever()
 
 async def main():
-    # подстраховка на случай, если вдруг где-то висел вебхук
+    # подстраховка: если где-то был вебхук — снести
     try:
         await bot.delete_webhook(drop_pending_updates=True)
     except Exception:
         pass
 
-    # кому нужен sanity-чек
+    # sanity-чек
     try:
         me = await bot.get_me()
         print(f"Running bot: @{me.username} (id {me.id})")
