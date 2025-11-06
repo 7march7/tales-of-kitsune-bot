@@ -1,17 +1,23 @@
+# bot.py
+import os
+import asyncio
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message
-import asyncio
-import os
+from aiohttp import web
 
-# токен и айди канала нужно задать в Render в "Environment Variables"
+# ---- конфиг ----
 BOT_TOKEN = os.getenv("BOT_TOKEN")
+if not BOT_TOKEN:
+    raise RuntimeError("BOT_TOKEN не задан. Добавь его в Environment Variables.")
+
+# порт для "фиктивного" веб-сервера (Render назначает PORT автоматически)
+PORT = int(os.getenv("PORT", "8000"))
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-
-# --- клавиатура при /start ---
+# --- клавиатура ---
 def start_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
         [
@@ -24,7 +30,7 @@ def start_keyboard():
     ])
 
 
-# --- команды ---
+# --- хэндлеры ---
 @dp.message(Command("start"))
 async def start_cmd(m: Message):
     text = (
@@ -51,7 +57,7 @@ async def show_vacancies(call):
 @dp.callback_query(F.data == "about")
 async def show_about(call):
     await call.message.answer(
-        "🦊 **Tales of Kitsune** — это команда, создающая качественные переводы и оформление манхв.\n\n"
+        "🦊 Tales of Kitsune — команда, создающая качественные переводы и оформление манхв.\n\n"
         "Мы объединяем переводчиков, редакторов и дизайнеров, чтобы оживлять истории с атмосферой и вниманием к деталям."
     )
 
@@ -63,21 +69,51 @@ async def show_apply(call):
         "Имя / Никнейм\n"
         "Возраст (по желанию)\n"
         "Желаемая роль\n"
-        "Небольшое описание опыта (если есть)\n\n"
+        "Краткое описание опыта (если есть)\n\n"
         "После этого куратор свяжется с тобой для выдачи тестового задания."
     )
 
 
-# --- запуск ---
+# --- лёгкий веб-сервер для Render ---
+async def start_webserver(port: int):
+    app = web.Application()
+
+    async def handle_ok(request):
+        return web.Response(text="OK")
+
+    async def handle_health(request):
+        return web.json_response({"status": "ok"})
+
+    app.add_routes([
+        web.get("/", handle_ok),
+        web.get("/healthz", handle_health),
+    ])
+
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+    print(f"Web server started on port {port}")
+    # не блокируем: сайт запущен и будет работать параллельно
+    return runner  # на случай, если захочешь чисто завершить
+
+
+# --- запуск бота + веб-сервера ---
 async def main():
-    print("Bot started")
+    # 1) стартим веб-сервер (чтобы Render видел открытый порт)
+    try:
+        await start_webserver(PORT)
+    except Exception as e:
+        print("Не удалось стартовать веб-сервер:", e)
+
+    # 2) стартим polling бота
+    print("Запускаем Telegram bot polling...")
     await dp.start_polling(bot)
+    # при остановке можно закрыть bot и т.д.
+
 
 if __name__ == "__main__":
-    asyncio.run(main())
-@dp.message()
-async def get_thread_id(m: Message):
-    if m.is_topic_message:
-        await m.answer(f"🩶 ID этой темы: `{m.message_thread_id}`")
-    else:
-        await m.answer("🖤 Это не сообщение внутри темы.")
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("Stopping...")
