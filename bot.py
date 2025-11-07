@@ -438,12 +438,13 @@ async def start_test(c: CallbackQuery):
 # ——— Админское PM из группы: /pm <user_id> [текст/медиа], без «светящейся» команды
 @dp.message(Command("pm"))
 async def admin_pm(m: Message, command: CommandObject):
+    # Только из групп/супергрупп и только от админов
     if m.chat.type not in ("supergroup", "group"):
         return
     if ADMIN_IDS and m.from_user.id not in ADMIN_IDS:
         return
 
-    # Извлекаем ID пользователя и текст, но не включаем саму команду
+    # Разбор аргументов: /pm <user_id> [текст...]
     args = (command.args or "").split(maxsplit=1)
     if not args:
         await m.reply("Использование: /pm <user_id> [текст или медиа]")
@@ -455,18 +456,15 @@ async def admin_pm(m: Message, command: CommandObject):
         await m.reply("Неверный формат. Пример: /pm 12345678 Привет или фото.")
         return
 
-    text = args[1] if len(args) > 1 else ""
+    # Текст для подписи (БЕЗ команды). Не используем m.caption!
+    text_body = args[1] if len(args) > 1 else ""
+    caption_base = "Сообщение от куратора:"
+    caption = f"{caption_base}\n\n{text_body}" if text_body else caption_base
+
     has_media = any([m.photo, m.document, m.video, m.animation, m.voice, m.audio, m.sticker])
 
     try:
-        # если есть медиа
         if has_media:
-            caption = "Сообщение от куратора:"
-            if m.caption:
-                caption += "\n\n" + m.caption
-            elif text:
-                caption += "\n\n" + text
-
             if m.photo:
                 await bot.send_photo(user_id, m.photo[-1].file_id, caption=caption)
             elif m.document:
@@ -480,17 +478,22 @@ async def admin_pm(m: Message, command: CommandObject):
             elif m.voice:
                 await bot.send_voice(user_id, m.voice.file_id, caption=caption)
             elif m.sticker:
+                # У стикера нет подписи: сначала стикер, потом текст (если есть)
                 await bot.send_sticker(user_id, m.sticker.file_id)
+                if text_body:
+                    await bot.send_message(user_id, caption)
             else:
+                # На всякий случай fallback
                 await bot.send_message(user_id, caption)
         else:
-            # только текст
-            await bot.send_message(user_id, f"Сообщение от куратора:\n\n{text}")
+            # Текст без медиа
+            await bot.send_message(user_id, caption)
 
         await m.reply("✅ Сообщение отправлено пользователю.")
-        # не затираем сообщение в чате админов
+        # НИЧЕГО не редактируем/не удаляем в админском чате, чтобы всё было видно
     except Exception as e:
         await m.reply(f"⚠️ Не удалось отправить: {e}")
+
 
 
 # ——— Приём контента ОТ ПОЛЬЗОВАТЕЛЕЙ и пересылка в админскую тему ВСЕГДА
