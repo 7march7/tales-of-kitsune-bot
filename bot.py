@@ -13,9 +13,19 @@ from aiogram.types import (
     Message, CallbackQuery
 )
 
-# >>> NEW: включаем HTML в качестве дефолтного parse_mode для всего бота
-from aiogram.client.default import DefaultBotProperties          # <<<
-from aiogram.enums import ParseMode                              # <<<
+# ==== HTML parse_mode: совместимость с разными aiogram ====
+try:
+    # aiogram v3.x
+    from aiogram.client.default import DefaultBotProperties  # может отсутствовать, если среда подсунула v2
+except Exception:  # noqa
+    DefaultBotProperties = None
+
+try:
+    # aiogram v3.x
+    from aiogram.enums import ParseMode
+except Exception:  # noqa
+    # на старых версиях класс жил в types
+    from aiogram.types import ParseMode  # type: ignore
 
 # ============ CONFIG ============
 
@@ -117,11 +127,12 @@ PORT = int(os.getenv("PORT", "10000"))
 
 # ============ BOT CORE ============
 
-# >>> HTML включён глобально
-bot = Bot(
-    BOT_TOKEN,
-    default=DefaultBotProperties(parse_mode=ParseMode.HTML)     # <<<
-)
+# HTML включён глобально: v3 через DefaultBotProperties, fallback — старый parse_mode
+if DefaultBotProperties:
+    bot = Bot(BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+else:
+    bot = Bot(BOT_TOKEN, parse_mode=ParseMode.HTML)
+
 dp = Dispatcher()
 
 STATE = {}
@@ -266,14 +277,14 @@ async def schedule_deadline_notify(user_id: int, role_key: str, started_at: date
         except Exception as e:
             print("Notify user failed:", e)
 
-# --- EDIT-IN-PLACE: один «экран» на пользователя ---
+# --- один «экран» на пользователя ---
 async def render_screen(
     user_id: int,
     chat_id: int,
     text: str,
     *,
     reply_markup=None,
-    parse_mode: str | None = ParseMode.HTML   # <<< HTML по умолчанию
+    parse_mode: str | None = ParseMode.HTML
 ):
     lock = _USER_LOCKS.setdefault(user_id, asyncio.Lock())
     async with lock:
@@ -377,7 +388,6 @@ async def on_about(c: CallbackQuery):
             [InlineKeyboardButton(text="« Назад", callback_data="back:menu"),
              InlineKeyboardButton(text="Подать заявку", callback_data="apply")]
         ])
-        # parse_mode тут не указываем — уже включён глобально
     )
     await c.answer()
 
