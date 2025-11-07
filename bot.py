@@ -225,13 +225,20 @@ async def schedule_deadline_notify(user_id: int, role_key: str, started_at: date
     thread_id = ROLE_TOPICS.get(role_key) or None
     title = role_title(role_key)
 
-    try:
-        text = (
-            "⏳ Выдано тестовое задание\n"
-            f"Роль: {title}\n"
-            f"Пользователь: id {user_id}\n"
-            f"Дедлайн: {deadline.strftime('%Y-%m-%d %H:%M %Z') or deadline.isoformat()}"
-        )
+   username = ""
+try:
+    user = await bot.get_chat(user_id)
+    username = f" (@{user.username})" if user.username else ""
+except Exception:
+    pass
+
+text = (
+    "⏳ Выдано тестовое задание\n"
+    f"Роль: {title}\n"
+    f"Пользователь: id {user_id}{username}\n"
+    f"Дедлайн: {deadline.strftime('%Y-%m-%d %H:%M %Z') or deadline.isoformat()}"
+)
+
         if GROUP_ID:
             if thread_id:
                 await bot.send_message(GROUP_ID, text, message_thread_id=thread_id)
