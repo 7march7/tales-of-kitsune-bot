@@ -3,6 +3,7 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 from threading import Thread
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from time import monotonic
 
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command, CommandObject
@@ -98,8 +99,14 @@ bot = Bot(BOT_TOKEN)
 dp = Dispatcher()
 
 # состояние пользователей:
-# user_id -> {"flow": ..., "role": ..., "deadline": datetime|None, "msg_id": int|None}
+# user_id -> {"flow": ..., "role": ..., "deadline": datetime|None, "msg_id": int|None, "chat_id": int|None}
 STATE = {}
+
+# антидребезг /start
+_LAST_START_AT: dict[int, float] = {}
+
+# замки на «экран» пользователя
+_USER_LOCKS: dict[int, asyncio.Lock] = {}
 
 # ============ KEYBOARDS ============
 
@@ -223,29 +230,54 @@ async def schedule_deadline_notify(user_id: int, role_key: str, started_at: date
 # --- EDIT-IN-PLACE: один «экран» на пользователя ---
 
 async def render_screen(user_id: int, chat_id: int, text: str, *, reply_markup=None):
-    st = STATE.setdefault(user_id, {"flow": None, "role": None, "deadline": None, "msg_id": None})
-    msg_id = st.get("msg_id")
-    if msg_id:
-        try:
-            await bot.edit_message_text(
-                text=text,
-                chat_id=chat_id,
-                message_id=msg_id,
-                reply_markup=reply_markup
-            )
-            return
-        except Exception as e:
-            # если редактировать не вышло — шлём новое
-            print("Edit failed, fallback to send:", e)
+    # один пользователь — один поток редактирования
+    lock = _USER_LOCKS.setdefault(user_id, asyncio.Lock())
+    async with lock:
+        st = STATE.setdefault(user_id, {"flow": None, "role": None, "deadline": None, "msg_id": None, "chat_id": None})
 
-    sent = await bot.send_message(chat_id, text, reply_markup=reply_markup)
-    st["msg_id"] = sent.message_id
+        # если «экран» был в другом чате, удалим старый
+        old_chat_id = st.get("chat_id")
+        old_msg_id = st.get("msg_id")
+        if old_msg_id and old_chat_id and old_chat_id != chat_id:
+            try:
+                await bot.delete_message(old_chat_id, old_msg_id)
+            except Exception:
+                pass
+            st["msg_id"] = None
+
+        # пробуем редактировать существующий
+        msg_id = st.get("msg_id")
+        if msg_id:
+            try:
+                await bot.edit_message_text(
+                    text=text,
+                    chat_id=chat_id,
+                    message_id=msg_id,
+                    reply_markup=reply_markup
+                )
+                st["chat_id"] = chat_id
+                return
+            except Exception as e:
+                print("Edit failed, fallback to send:", e)
+                st["msg_id"] = None
+
+        # отправляем новое «экран»-сообщение
+        sent = await bot.send_message(chat_id, text, reply_markup=reply_markup)
+        st["msg_id"] = sent.message_id
+        st["chat_id"] = chat_id
 
 # ============ HANDLERS ============
 
 @dp.message(Command("start"))
 async def cmd_start(m: Message):
-    STATE[m.from_user.id] = {"flow": None, "role": None, "deadline": None, "msg_id": None}
+    # антидребезг: игнорируем повторный /start в течение 1.5 сек
+    now = monotonic()
+    last = _LAST_START_AT.get(m.from_user.id, 0.0)
+    if now - last < 1.5:
+        return
+    _LAST_START_AT[m.from_user.id] = now
+
+    STATE[m.from_user.id] = {"flow": None, "role": None, "deadline": None, "msg_id": None, "chat_id": None}
     await render_screen(
         m.from_user.id, m.chat.id,
         "Присоединяйся к команде Tales of Kitsune — магия начинается с первой главы.\n\nВыбери раздел:",
@@ -361,10 +393,9 @@ async def start_test(c: CallbackQuery):
     asyncio.create_task(schedule_deadline_notify(c.from_user.id, key, st["deadline"]))
     await c.answer("Тест выдан")
 
-# ——— Админское PM из группы: /pm <user_id> текст…
+# ——— Админское PM из группы: /pm <user_id> текст… (расширенный, чтобы не светить команду)
 @dp.message(Command("pm"))
 async def admin_pm(m: Message, command: CommandObject):
-    # Проверяем, что команда идёт из группы и от админа
     if m.chat.type not in ("supergroup", "group"):
         return
     if ADMIN_IDS and m.from_user.id not in ADMIN_IDS:
@@ -380,7 +411,6 @@ async def admin_pm(m: Message, command: CommandObject):
         await m.reply("Неверный формат. Пример: /pm 12345678 Привет или фото.")
         return
 
-    # Проверяем наличие медиа
     has_media = any([
         m.photo, m.document, m.video, m.animation,
         m.voice, m.audio, m.sticker
@@ -408,7 +438,6 @@ async def admin_pm(m: Message, command: CommandObject):
                 await bot.send_sticker(user_id, m.sticker.file_id)
             else:
                 await bot.send_message(user_id, caption)
-
         else:
             text = " ".join(command.args.split(maxsplit=1)[1:]) if len(command.args.split()) > 1 else ""
             await bot.send_message(user_id, f"Сообщение от куратора:\n\n{text}")
@@ -473,9 +502,8 @@ class _Handler(BaseHTTPRequestHandler):
         else:
             self.send_response(404); self.end_headers()
 
-    def log_message(self, fmt, *args):
+    def log_message(self, fmt, *args):  # тихо
         return
-
 
 def start_http():
     srv = HTTPServer(("0.0.0.0", PORT), _Handler)
