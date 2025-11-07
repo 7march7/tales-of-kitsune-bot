@@ -342,22 +342,36 @@ async def topic_id(m: Message):
         await m.answer("Отправьте команду /topicid внутри нужной темы (вкладки) группы.")
 
 @dp.callback_query(F.data == "about")
-async def on_about(c: CallbackQuery):
-    if _cb_too_fast_for_key(c.from_user.id, c.data):
-        await c.answer("Секунду…")
-        return
-    await render_screen(
-        c.from_user.id, c.message.chat.id,
-        """Tales of Kitsune — команда, которая переводит манхвы с любовью к оригиналу и уважением к читателю.
-        Работаем за спасибо.
+await render_screen(
+    c.from_user.id,
+    c.message.chat.id,
+    """<b>Tales of Kitsune</b> — команда, которая переводит манхвы с любовью к оригиналу и уважением к читателю.
+
+<b>Работаем за спасибо.</b>
 Наш проект некоммерческий: здесь нет зарплат, премий и прочих земных наград.
-Мы трудимся ради удовольствия творить и ради тех, кто хочет читать эти истории свободно""",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="« Назад", callback_data="back:menu"),
-             InlineKeyboardButton(text="Подать заявку", callback_data="apply")]
-        ])
-    )
-    await c.answer()
+Мы трудимся ради удовольствия творить и ради тех, кто хочет читать эти истории свободно.
+
+<b>Опыт приветствуется, но обучение предоставляем.</b>
+Не умеешь чистить, вставлять текст или спорить со шрифтами — научим.
+Умеешь — тем лучше, сбережём немного нервов и времени для сна.
+Главное — желание делать хорошо. Остальное приходит с практикой, терпением и парой ночей в компании таинственного файла «финал_3_точно_последний.psd».
+
+<b>Требования:</b>
+• Пара свободных часов в неделю;
+• Ответственность и уважение к срокам;
+• Возраст от 16 лет. <i>Паспортные данные мы не запрашиваем. Всё строится на доверии между нами.</i>
+• Прохождение тестового задания.""",
+    reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="‹ Назад", callback_data="back:menu"),
+            InlineKeyboardButton(text="Подать заявку", callback_data="apply")
+        ]
+    ]),
+    parse_mode="HTML"
+)
+
+await c.answer()
+
 
 @dp.callback_query(F.data == "vacancies")
 async def on_vacancies(c: CallbackQuery):
