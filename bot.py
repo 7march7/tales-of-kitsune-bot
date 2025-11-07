@@ -364,25 +364,38 @@ async def start_test(c: CallbackQuery):
 # ——— Админское PM из группы: /pm <user_id> текст…
 @dp.message(Command("pm"))
 async def admin_pm(m: Message, command: CommandObject):
+    # Разрешаем только из группы и только администраторам
     if m.chat.type not in ("supergroup", "group"):
         return
     if ADMIN_IDS and m.from_user.id not in ADMIN_IDS:
         return
 
     if not command.args:
-        await m.reply("Использование: /pm <user_id> <текст>")
-        return
-    try:
-        parts = command.args.split(maxsplit=1)
-        user_id = int(parts[0])
-        text = parts[1] if len(parts) > 1 else ""
-    except Exception:
-        await m.reply("Неверный формат. Пример: /pm 12345678 Привет!")
+        await m.reply("Использование: /pm <user_id> [текст или прикреплённые файлы]")
         return
 
     try:
-        await bot.send_message(user_id, f"Сообщение от куратора:\n\n{text}")
-        await m.reply("Отправлено.")
+        user_id = int(command.args.split(maxsplit=1)[0])
+    except Exception:
+        await m.reply("Неверный формат. Пример: /pm 12345678 Привет или фото.")
+        return
+
+    # --- если сообщение содержит медиа, пересылаем его ---
+    has_media = any([
+        m.photo, m.document, m.video, m.animation,
+        m.voice, m.audio, m.sticker
+    ])
+
+    try:
+        if has_media:
+            # пересылаем исходное сообщение пользователю
+            await m.copy_to(user_id)
+        else:
+            # просто текст
+            text = " ".join(command.args.split(maxsplit=1)[1:]) if len(command.args.split()) > 1 else ""
+            await bot.send_message(user_id, f"Сообщение от куратора:\n\n{text}")
+
+        await m.reply("Отправлено пользователю.")
     except Exception as e:
         await m.reply(f"Не удалось отправить: {e}")
 
