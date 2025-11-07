@@ -59,7 +59,7 @@ ROLE_INFO = {
 • Индонезийский
 
 Современные чары машинного перевода и нейросетей можно звать на помощь, но не позволяйте им творить вместо вас.""",
-        "guide": "https://docs.google.com/document/d/17aIy4CmRICW-Rcs3PCMP5huaRjJU8GpRCbvhqx6W8UM/edit?usp=sharing",
+        "guide": "https://docs.google.com/document/d/1fKu8n-1nLpgLHV2-XNPM-HeBaCFlpX23lbAdXDllB-A/edit?usp=sharing",
         "test_folder": "https://drive.google.com/drive/folders/1jferUktlsctxsRWYmHiqU7gHr6JE6eyJ?usp=sharing"
     },
 
@@ -348,7 +348,10 @@ async def on_about(c: CallbackQuery):
         return
     await render_screen(
         c.from_user.id, c.message.chat.id,
-        "Tales of Kitsune — команда, которая переводит манхвы с любовью к оригиналу и уважением к читателю.",
+        """Tales of Kitsune — команда, которая переводит манхвы с любовью к оригиналу и уважением к читателю.
+        Работаем за спасибо.
+Наш проект некоммерческий: здесь нет зарплат, премий и прочих земных наград.
+Мы трудимся ради удовольствия творить и ради тех, кто хочет читать эти истории свободно""",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="« Назад", callback_data="back:menu"),
              InlineKeyboardButton(text="Подать заявку", callback_data="apply")]
@@ -383,7 +386,7 @@ async def on_back_menu(c: CallbackQuery):
         return
     st = STATE.setdefault(c.from_user.id, {})
     st.update({"flow": None, "role": None})
-    await render_screen(c.from_user.id, c.message.chat.id, "Главное меню:", reply_markup=main_menu())
+    await render_screen(c.from_user.id, c.message.chat.id, "Узнай легенды Логова и правила его обитателей, а затем оставь свою заявку, если готов присоединиться к стае.", reply_markup=main_menu())
     await c.answer()
 
 @dp.callback_query(F.data == "back:vacancies")
@@ -403,7 +406,7 @@ async def on_back_applyroles(c: CallbackQuery):
         return
     st = STATE.setdefault(c.from_user.id, {})
     st.update({"flow": "apply", "role": None})
-    await render_screen(c.from_user.id, c.message.chat.id, "Выбери специальность:", reply_markup=apply_roles_keyboard())
+    await render_screen(c.from_user.id, c.message.chat.id, "Выбери направление, в котором раскроется твой талант под покровительством кицунэ.", reply_markup=apply_roles_keyboard())
     await c.answer()
 
 # ——— Вакансии: показать описание роли
