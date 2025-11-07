@@ -325,7 +325,7 @@ async def cmd_start(m: Message):
     STATE[m.from_user.id] = {"flow": None, "role": None, "deadline": None, "msg_id": None, "chat_id": None}
     await render_screen(
         m.from_user.id, m.chat.id,
-        "Присоединяйся к команде Tales of Kitsune — магия начинается с первой главы.\n\nВыбери раздел:",
+        "Узнай легенды логова и правила его обитателей, а затем оставь свою заявку, если готов присоединиться к стае.",
         reply_markup=main_menu()
     )
 
