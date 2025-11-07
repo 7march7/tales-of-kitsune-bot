@@ -436,17 +436,17 @@ async def start_test(c: CallbackQuery):
 # ——— Админское PM из группы: /pm <user_id> [текст/медиа], без «светящейся» команды
 @dp.message(Command("pm"))
 async def admin_pm(m: Message, command: CommandObject):
-    # Разрешено только из группы и только админам (если список задан)
+    # Только из группы и только админам (если список задан)
     if m.chat.type not in ("supergroup", "group"):
         return
     if ADMIN_IDS and m.from_user.id not in ADMIN_IDS:
         return
 
     if not command.args:
-        await m.reply("Использование: ответь на сообщение или прикрепи медиа и напиши:\n/pm <user_id> [комментарий]")
+        await m.reply("Использование: ответь реплаем на сообщение или прикрепи медиа и напиши:\n/pm <user_id> [комментарий]")
         return
 
-    # user_id и опциональный комментарий
+    # user_id и необязательный комментарий куратора
     try:
         parts = command.args.split(maxsplit=1)
         user_id = int(parts[0])
@@ -456,37 +456,55 @@ async def admin_pm(m: Message, command: CommandObject):
         return
 
     header = "Сообщение от куратора:"
+    delivered_tag = f"\n\n✅ Доставлено пользователю {user_id}"
+
     try:
         if m.reply_to_message:
-            # РЕЖИМ 1: реплай на исходное сообщение (любой контент)
-            orig = m.reply_to_message
-            orig_caption = orig.caption or ""
+            # РЕЖИМ 1: реплай на чужое сообщение (любое медиа/текст)
+            src = m.reply_to_message
+            orig_caption = src.caption or ""
             final_caption = "\n\n".join(
                 [t for t in [header, extra_text if extra_text else None, orig_caption if orig_caption else None] if t]
             )
-            await orig.copy_to(user_id, caption=final_caption)
+
+            # 1) отправка пользователю
+            await src.copy_to(user_id, caption=final_caption)
+
+            # 2) лог в админ-чат: чистая копия без /pm, с отметкой «доставлено»
+            await src.copy_to(m.chat.id, caption=final_caption + delivered_tag)
 
         else:
-            # РЕЖИМ 2: медиа/текст в самой команде (/pm ... в подписи)
+            # РЕЖИМ 2: медиа/текст внутри самого сообщения с командой
             has_media = any([m.photo, m.document, m.video, m.animation, m.voice, m.audio, m.sticker])
+
             if has_media:
-                # Пересылаем САМО сообщение-Команду, но подменяем подпись, чтобы не светился /pm
                 final_caption = "\n\n".join([t for t in [header, extra_text if extra_text else None] if t]) or header
+
+                # 1) пользователю — копируем это же сообщение, но без /pm в подписи
                 await m.copy_to(user_id, caption=final_caption)
+
+                # 2) лог в админ-чат — тоже копия без /pm, с отметкой «доставлено»
+                await m.copy_to(m.chat.id, caption=final_caption + delivered_tag)
+
             else:
                 # Просто текст
                 final_text = "\n\n".join([t for t in [header, extra_text if extra_text else None] if t]) or header
+
+                # 1) пользователю
                 await bot.send_message(user_id, final_text)
 
-        # Прячем саму команду из чата
+                # 2) лог в админ-чат: тот же текст + «доставлено»
+                await bot.send_message(m.chat.id, final_text + delivered_tag)
+
+        # Прячем исходную команду (чтобы /pm не светился)
         try:
             await m.delete()
         except Exception:
             pass
 
-        await bot.send_message(m.chat.id, "✅ Сообщение отправлено пользователю.")
     except Exception as e:
         await bot.send_message(m.chat.id, f"⚠️ Не удалось отправить: {e}")
+
 
 
 # ——— Прием контента в рамках заявки и пересылка в тему
