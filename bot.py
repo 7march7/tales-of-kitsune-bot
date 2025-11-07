@@ -100,13 +100,15 @@ dp = Dispatcher()
 # user_id -> {"flow": ..., "role": ..., "deadline": datetime|None, "msg_id": int|None, "chat_id": int|None}
 STATE = {}
 
+# долговременная "память" последней роли пользователя (чтобы принимать сообщения ВСЕГДА)
+USER_LAST_ROLE: dict[int, str] = {}
+
 # антидребезг /start
 _LAST_START_AT: dict[int, float] = {}
 
-# антидребезг callback-кнопок: «по пользователю и ключу»
-# ключ = первая часть callback_data до двоеточия, напр. "v", "a", "starttest", "back"
+# антидребезг callback-кнопок
 _LAST_CB_KEY_AT: dict[tuple[int, str], float] = {}
-_CB_DEBOUNCE_SEC = 2.2  # поднимай до 2.5, если всё ещё дублит
+_CB_DEBOUNCE_SEC = 2.2
 
 # замки на «экран» пользователя
 _USER_LOCKS: dict[int, asyncio.Lock] = {}
@@ -182,7 +184,7 @@ def start_test_keyboard(role_key: str):
 # ============ HELPERS ============
 
 def role_title(key: str) -> str:
-    return ROLE_INFO.get(key, {}).get("title", key)
+    return ROLE_INFO.get(key, {}).get("title", "—")
 
 def role_desc_block(key: str) -> str:
     info = ROLE_INFO.get(key) or {}
@@ -198,7 +200,6 @@ def apply_info_block(key: str) -> str:
     return f"{title}\n{desc}\n\nМетодичка: {guide}"
 
 def _cb_too_fast_for_key(user_id: int, data: str) -> bool:
-    """Дебаунс по «ключу» кнопки: первая часть callback_data до ':'."""
     key = data.split(":", 1)[0] if data else ""
     now = monotonic()
     last = _LAST_CB_KEY_AT.get((user_id, key), 0.0)
@@ -208,7 +209,6 @@ def _cb_too_fast_for_key(user_id: int, data: str) -> bool:
     return False
 
 async def schedule_deadline_notify(user_id: int, role_key: str, started_at: datetime):
-    """Сообщение в группу при выдаче теста и напоминание пользователю по дедлайну."""
     deadline = started_at + timedelta(days=TEST_DEADLINE_DAYS)
     thread_id = ROLE_TOPICS.get(role_key) or None
     title = role_title(role_key)
@@ -243,12 +243,10 @@ async def schedule_deadline_notify(user_id: int, role_key: str, started_at: date
 # --- EDIT-IN-PLACE: один «экран» на пользователя ---
 
 async def render_screen(user_id: int, chat_id: int, text: str, *, reply_markup=None):
-    # один пользователь — один поток редактирования
     lock = _USER_LOCKS.setdefault(user_id, asyncio.Lock())
     async with lock:
         st = STATE.setdefault(user_id, {"flow": None, "role": None, "deadline": None, "msg_id": None, "chat_id": None})
 
-        # если «экран» был в другом чате, удалим старый
         old_chat_id = st.get("chat_id")
         old_msg_id = st.get("msg_id")
         if old_msg_id and old_chat_id and old_chat_id != chat_id:
@@ -258,7 +256,6 @@ async def render_screen(user_id: int, chat_id: int, text: str, *, reply_markup=N
                 pass
             st["msg_id"] = None
 
-        # пробуем редактировать существующий
         msg_id = st.get("msg_id")
         if msg_id:
             try:
@@ -274,7 +271,6 @@ async def render_screen(user_id: int, chat_id: int, text: str, *, reply_markup=N
                 print("Edit failed, fallback to send:", e)
                 st["msg_id"] = None
 
-        # отправляем новое «экран»-сообщение
         sent = await bot.send_message(chat_id, text, reply_markup=reply_markup)
         st["msg_id"] = sent.message_id
         st["chat_id"] = chat_id
@@ -283,7 +279,6 @@ async def render_screen(user_id: int, chat_id: int, text: str, *, reply_markup=N
 
 @dp.message(Command("start"))
 async def cmd_start(m: Message):
-    # антидребезг: игнор повторного /start в течение 1.5 сек
     now = monotonic()
     last = _LAST_START_AT.get(m.from_user.id, 0.0)
     if now - last < 1.5:
@@ -304,7 +299,6 @@ async def cancel(m: Message):
 
 @dp.message(Command("topicid"))
 async def topic_id(m: Message):
-    # команду надо отправить ВНУТРИ темы в группе
     if getattr(m, "is_topic_message", False):
         await m.answer(f"ID этой темы: {m.message_thread_id}")
     else:
@@ -384,6 +378,9 @@ async def vacancy_show(c: CallbackQuery):
     key = c.data.split(":", 1)[1]
     st = STATE.setdefault(c.from_user.id, {})
     st["role"] = key
+    # запоминаем как «последнюю роль»
+    USER_LAST_ROLE[c.from_user.id] = key
+
     await render_screen(
         c.from_user.id, c.message.chat.id,
         role_desc_block(key),
@@ -391,7 +388,7 @@ async def vacancy_show(c: CallbackQuery):
     )
     await c.answer()
 
-# ——— Подача: показать роль + методичка + кнопка "Пройти тестовое задание"
+# ——— Подача: роль + методичка + старт теста
 @dp.callback_query(F.data.startswith("a:"))
 async def apply_role_intro(c: CallbackQuery):
     if _cb_too_fast_for_key(c.from_user.id, c.data):
@@ -400,6 +397,8 @@ async def apply_role_intro(c: CallbackQuery):
     key = c.data.split(":", 1)[1]
     st = STATE.setdefault(c.from_user.id, {})
     st["role"] = key
+    USER_LAST_ROLE[c.from_user.id] = key
+
     await render_screen(
         c.from_user.id, c.message.chat.id,
         apply_info_block(key),
@@ -418,6 +417,9 @@ async def start_test(c: CallbackQuery):
     folder = info.get("test_folder", "—")
     st = STATE.setdefault(c.from_user.id, {})
     st["deadline"] = datetime.now(timezone.utc)
+    # на всякий — тоже запоминаем роль
+    st["role"] = key
+    USER_LAST_ROLE[c.from_user.id] = key
 
     await render_screen(
         c.from_user.id, c.message.chat.id,
@@ -433,28 +435,8 @@ async def start_test(c: CallbackQuery):
     asyncio.create_task(schedule_deadline_notify(c.from_user.id, key, st["deadline"]))
     await c.answer("Тест выдан")
 
-# --- helper: отправить любой тип медиа по file_id в целевой чат ---
-async def _send_media_by_file_id(chat_id: int, src: Message, caption: str | None = None):
-    if src.photo:
-        return await bot.send_photo(chat_id, src.photo[-1].file_id, caption=caption)
-    if src.document:
-        return await bot.send_document(chat_id, src.document.file_id, caption=caption)
-    if src.video:
-        return await bot.send_video(chat_id, src.video.file_id, caption=caption)
-    if src.animation:
-        return await bot.send_animation(chat_id, src.animation.file_id, caption=caption)
-    if src.audio:
-        return await bot.send_audio(chat_id, src.audio.file_id, caption=caption)
-    if src.voice:
-        return await bot.send_voice(chat_id, src.voice.file_id, caption=caption)
-    if src.sticker:
-        return await bot.send_sticker(chat_id, src.sticker.file_id)
-    if src.text:
-        return await bot.send_message(chat_id, src.text)
-    return await bot.send_message(chat_id, caption or "Сообщение от куратора")
-
 # ——— Админское PM из группы: /pm <user_id> [текст/медиа], без «светящейся» команды
-@dp.message(Command("pm"))
+@dp.message(Command("pm")))
 async def admin_pm(m: Message, command: CommandObject):
     if m.chat.type not in ("supergroup", "group"):
         return
@@ -462,72 +444,73 @@ async def admin_pm(m: Message, command: CommandObject):
         return
 
     if not command.args:
-        await m.reply("Использование: /pm <user_id> [комментарий]\n"
-                      "Можно отправить как реплаем на медиа/сообщение, так и с прикреплённым медиа.")
+        await m.reply("Использование: /pm <user_id> [текст или прикреплённые файлы]")
         return
 
     try:
-        parts = command.args.split(maxsplit=1)
-        user_id = int(parts[0])
-        extra_text = parts[1] if len(parts) > 1 else ""
+        user_id = int(command.args.split(maxsplit=1)[0])
     except Exception:
-        await m.reply("Неверный формат. Пример: /pm 12345678 Привет.")
+        await m.reply("Неверный формат. Пример: /pm 12345678 Привет или фото.")
         return
 
-    header = "Сообщение от куратора:"
-    delivered_tag = f"\n\n✅ Доставлено пользователю {user_id}"
+    has_media = any([
+        m.photo, m.document, m.video, m.animation,
+        m.voice, m.audio, m.sticker
+    ])
 
     try:
-        if m.reply_to_message:
-            # реплай на исходный контент
-            src = m.reply_to_message
-            orig_text = src.caption if any([src.photo, src.document, src.video, src.animation, src.audio, src.voice]) else (src.text or "")
-            user_caption = "\n\n".join([t for t in (header, extra_text or None, orig_text or None) if t]) or header
-            admin_caption = user_caption + delivered_tag
+        if has_media:
+            caption = "Сообщение от куратора:"
+            if m.caption:
+                caption += "\n\n" + m.caption
 
-            await _send_media_by_file_id(user_id, src, caption=user_caption)
-            await _send_media_by_file_id(m.chat.id, src, caption=admin_caption)
-        else:
-            # медиа/текст прямо в /pm-сообщении
-            has_media = any([m.photo, m.document, m.video, m.animation, m.voice, m.audio, m.sticker])
-            if has_media:
-                user_caption = "\n\n".join([t for t in (header, extra_text or None) if t]) or header
-                admin_caption = user_caption + delivered_tag
-
-                await _send_media_by_file_id(user_id, m, caption=user_caption)
-                await _send_media_by_file_id(m.chat.id, m, caption=admin_caption)
+            if m.photo:
+                await bot.send_photo(user_id, m.photo[-1].file_id, caption=caption)
+            elif m.document:
+                await bot.send_document(user_id, m.document.file_id, caption=caption)
+            elif m.video:
+                await bot.send_video(user_id, m.video.file_id, caption=caption)
+            elif m.animation:
+                await bot.send_animation(user_id, m.animation.file_id, caption=caption)
+            elif m.audio:
+                await bot.send_audio(user_id, m.audio.file_id, caption=caption)
+            elif m.voice:
+                await bot.send_voice(user_id, m.voice.file_id, caption=caption)
+            elif m.sticker:
+                await bot.send_sticker(user_id, m.sticker.file_id)
             else:
-                text_out = "\n\n".join([t for t in (header, extra_text or None) if t]) or header
-                await bot.send_message(user_id, text_out)
-                await bot.send_message(m.chat.id, text_out + delivered_tag)
+                await bot.send_message(user_id, caption)
+        else:
+            parts = command.args.split(maxsplit=1)
+            text = parts[1] if len(parts) > 1 else ""
+            await bot.send_message(user_id, f"Сообщение от куратора:\n\n{text}")
 
-        # прячем саму команду
-        try:
-            await m.delete()
-        except Exception:
-            pass
-
+        await m.reply("✅ Сообщение отправлено пользователю.")
+        # не затираем исходный пост в группе — админы видят, что именно отправили
     except Exception as e:
-        await bot.send_message(m.chat.id, f"⚠️ Не удалось отправить: {e}")
+        await m.reply(f"⚠️ Не удалось отправить: {e}")
 
-# ——— Прием контента в рамках заявки и пересылка в тему
+# ——— Приём контента ОТ ПОЛЬЗОВАТЕЛЕЙ и пересылка в админскую тему ВСЕГДА
 @dp.message()
 async def collect_and_forward(m: Message):
+    # в приватах ловим всё, кроме команд
+    if m.chat.type != "private":
+        return
     if m.text and m.text.startswith("/"):
         return
 
-    st = STATE.get(m.from_user.id)
-    if not st or not st.get("role"):
-        return  # пользователь не в процессе подачи
+    st = STATE.get(m.from_user.id) or {}
+    role_key = st.get("role") or USER_LAST_ROLE.get(m.from_user.id)
+    role_title_text = role_title(role_key) if role_key else "—"
 
-    role = st["role"]
-    title = role_title(role)
-    thread_id = ROLE_TOPICS.get(role) or None
+    # куда слать: в тему по роли, если есть; иначе в общий поток группы
+    thread_id = ROLE_TOPICS.get(role_key) if role_key else None
 
+    username = f"@{m.from_user.username}" if m.from_user.username else "—"
     header = (
-        f"📥 Заявка от @{m.from_user.username or '—'} (id {m.from_user.id})\n"
-        f"Роль: {title}"
+        f"📥 Сообщение от {username} (id {m.from_user.id}) | Роль: {role_title_text}"
     )
+
     try:
         if GROUP_ID:
             if thread_id:
@@ -537,10 +520,15 @@ async def collect_and_forward(m: Message):
                 await bot.send_message(GROUP_ID, header)
                 await m.copy_to(GROUP_ID)
 
-        await bot.send_message(m.chat.id, "Принято. Сообщение отправлено кураторам.")
+        # Пользователю — короткий автоответ, если хочешь, можно убрать:
+        # await bot.send_message(m.chat.id, "Принято. Сообщение отправлено кураторам.")
     except Exception as e:
         print("Forward error:", e)
-        await bot.send_message(m.chat.id, "Не удалось отправить кураторам. Проверьте позже.")
+        # мягкий фоллбек без разглашения технической чуши пользователю
+        try:
+            await bot.send_message(m.chat.id, "Не получилось доставить сообщение кураторам. Попробуйте ещё раз позже.")
+        except Exception:
+            pass
 
 # ============ FAKE HTTP FOR RENDER ============
 
@@ -561,11 +549,11 @@ class _Handler(BaseHTTPRequestHandler):
 
     def do_HEAD(self):
         if self.path in ("/", "/healthz"):
-            self._ok()  # то же самое, но без тела
+            self._ok()
         else:
             self.send_response(404); self.end_headers()
 
-    def log_message(self, fmt, *args):  # тихо
+    def log_message(self, fmt, *args):
         return
 
 def start_http():
@@ -574,7 +562,6 @@ def start_http():
     srv.serve_forever()
 
 async def main():
-    # на всякий случай сносим вебхук, если где-то остался
     try:
         await bot.delete_webhook(drop_pending_updates=True)
     except Exception:
