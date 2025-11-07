@@ -37,7 +37,7 @@ ROLE_TOPICS = {
     "typecheck":  int(os.getenv("THREAD_TYPECHECK_ID", "0")),
 }
 
-# >>> Постоянная ссылка, которую нужно показывать ПРИ ЛЮБОЙ специальности
+# Постоянная ссылка, которую нужно показывать ПРИ ЛЮБОЙ специальности
 EXTRA_GUIDE_URL = (
     "https://docs.google.com/document/d/1kfJ18MnWzpWa6n4oSTYEn0tisz3VNC0a/"
     "edit?usp=sharing&ouid=104155753409319228630&rtpof=true&sd=true"
@@ -222,7 +222,7 @@ def apply_info_block(key: str) -> str:
     title = info.get("title", key)
     desc = info.get("desc", "Описание скоро будет.")
     guide = info.get("guide", "—")
-    # >>> добавили постоянную ссылку в вывод
+    # добавлена постоянная ссылка (EXTRA_GUIDE_URL)
     return (
         f"{title}\n{desc}\n\n"
         f"Правила: {guide}\n"
@@ -278,8 +278,14 @@ async def schedule_deadline_notify(user_id: int, role_key: str, started_at: date
             print("Notify user failed:", e)
 
 # --- EDIT-IN-PLACE: один «экран» на пользователя ---
-
-async def render_screen(user_id: int, chat_id: int, text: str, *, reply_markup=None):
+async def render_screen(
+    user_id: int,
+    chat_id: int,
+    text: str,
+    *,
+    reply_markup=None,
+    parse_mode: str | None = None
+):
     lock = _USER_LOCKS.setdefault(user_id, asyncio.Lock())
     async with lock:
         st = STATE.setdefault(user_id, {"flow": None, "role": None, "deadline": None, "msg_id": None, "chat_id": None})
@@ -301,7 +307,7 @@ async def render_screen(user_id: int, chat_id: int, text: str, *, reply_markup=N
                     chat_id=chat_id,
                     message_id=msg_id,
                     reply_markup=reply_markup,
-                    parse_mode="Markdown"   # ← добавили parse_mode для редактирования
+                    parse_mode=parse_mode
                 )
                 st["chat_id"] = chat_id
                 return
@@ -313,7 +319,7 @@ async def render_screen(user_id: int, chat_id: int, text: str, *, reply_markup=N
             chat_id,
             text,
             reply_markup=reply_markup,
-            parse_mode="Markdown"       # ← добавили parse_mode для отправки
+            parse_mode=parse_mode
         )
         st["msg_id"] = sent.message_id
         st["chat_id"] = chat_id
@@ -357,28 +363,32 @@ async def on_about(c: CallbackQuery):
     if _cb_too_fast_for_key(c.from_user.id, c.data):
         await c.answer("Притормози, лисёнок...")
         return
+
+    about_html = (
+        "<b>Tales of Kitsune</b> — команда, которая переводит манхвы с любовью к оригиналу и уважением к читателю.\n\n"
+        "<b>Работаем за спасибо.</b>\n"
+        "Наш проект некоммерческий: здесь нет зарплат, премий и прочих земных наград.\n"
+        "Мы трудимся ради удовольствия творить и ради тех, кто хочет читать эти истории свободно — так, как их задумали авторы.\n\n"
+        "<b>Берём кандидатов без опыта.</b>\n"
+        "Не умеешь чистить, вставлять текст или спорить со шрифтами — научим.\n"
+        "Умеешь — тем лучше, сбережём немного нервов и времени для сна.\n"
+        "Главное — желание делать хорошо. Остальное приходит с практикой, терпением и парой ночей в компании таинственного файла «финал_3_точно_последний.psd».\n\n"
+        "<b>Требования:</b>\n"
+        "• Пара свободных часов в неделю\n"
+        "• Ответственность и уважение к срокам\n"
+        "• Возраст от 16 лет\n"
+        "• Прохождение тестового задания"
+    )
+
     await render_screen(
-        c.from_user.id, c.message.chat.id,
-        """*Tales of Kitsune* — команда, которая переводит манхвы с любовью к оригиналу и уважением к читателю.
-        
-*Работаем за спасибо.*
-Наш проект некоммерческий: здесь нет зарплат, премий и прочих земных наград.
-Мы трудимся ради удовольствия творить и ради тех, кто хочет читать эти истории свободно — так, как их задумали авторы.
-
-*Берём кандидатов без опыта.*
-Не умеешь чистить, вставлять текст или спорить со шрифтами — научим.
-Умеешь — тем лучше, сбережём немного нервов и времени для сна.
-Главное — желание делать хорошо. Остальное приходит с практикой, терпением и парой ночей в компании таинственного файла «финал_3_точно_последний.psd».
-
-*Требования:*
-• Пара свободных часов в неделю
-• Ответственность и уважение к срокам
-• Возраст от 16 лет
-• Прохождение тестового задания""",
+        c.from_user.id,
+        c.message.chat.id,
+        about_html,
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="« Назад", callback_data="back:menu"),
              InlineKeyboardButton(text="Подать заявку", callback_data="apply")]
-        ])
+        ]),
+        parse_mode="HTML"
     )
     await c.answer()
 
@@ -409,7 +419,9 @@ async def on_back_menu(c: CallbackQuery):
         return
     st = STATE.setdefault(c.from_user.id, {})
     st.update({"flow": None, "role": None})
-    await render_screen(c.from_user.id, c.message.chat.id, "Узнай легенды Логова и правила его обитателей, а затем оставь свою заявку, если готов присоединиться к стае.", reply_markup=main_menu())
+    await render_screen(c.from_user.id, c.message.chat.id,
+                        "Узнай легенды Логова и правила его обитателей, а затем оставь свою заявку, если готов присоединиться к стае.",
+                        reply_markup=main_menu())
     await c.answer()
 
 @dp.callback_query(F.data == "back:vacancies")
@@ -429,7 +441,9 @@ async def on_back_applyroles(c: CallbackQuery):
         return
     st = STATE.setdefault(c.from_user.id, {})
     st.update({"flow": "apply", "role": None})
-    await render_screen(c.from_user.id, c.message.chat.id, "Выбери направление, в котором раскроется твой талант под покровительством кицунэ.", reply_markup=apply_roles_keyboard())
+    await render_screen(c.from_user.id, c.message.chat.id,
+                        "Выбери направление, в котором раскроется твой талант под покровительством кицунэ.",
+                        reply_markup=apply_roles_keyboard())
     await c.answer()
 
 # ——— Вакансии: показать описание роли
@@ -463,7 +477,7 @@ async def apply_role_intro(c: CallbackQuery):
 
     await render_screen(
         c.from_user.id, c.message.chat.id,
-        apply_info_block(key),   # ← тут уже внутри появится ОБЩАЯ ссылка
+        apply_info_block(key),
         reply_markup=start_test_keyboard(key)
     )
     await c.answer()
@@ -485,7 +499,10 @@ async def start_test(c: CallbackQuery):
     await render_screen(
         c.from_user.id, c.message.chat.id,
         "Заполните анкету по форме ниже (отправьте одним сообщением — пункты можно перечислить):\n"
-        "Имя (при желании указать) / Ник (как к вам обращаться)\nНаличие/отсутствие опыта (при желании указать)\nКоличество свободного времени в неделю\nДополнительные полезные навыки/знания (работа в приложениях, с нейросетями, знание EXCEL/Google docs и прочее)\n\n"
+        "Имя (при желании указать) / Ник (как к вам обращаться)\n"
+        "Наличие/отсутствие опыта (при желании указать)\n"
+        "Количество свободного времени в неделю\n"
+        "Дополнительные полезные навыки/знания (работа в приложениях, с нейросетями, знание EXCEL/Google docs и прочее)\n\n"
         f"Папка с тестовым заданием: {folder}\n"
         f"Дедлайн: {TEST_DEADLINE_DAYS} дня.",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
