@@ -378,7 +378,7 @@ async def on_back_applyroles(c: CallbackQuery):
 # ——— Вакансии: показать описание роли
 @dp.callback_query(F.data.startswith("v:"))
 async def vacancy_show(c: CallbackQuery):
-    if _cb_too_fast_for_key(c.from_user.id, c.data)):
+    if _cb_too_fast_for_key(c.from_user.id, c.data):
         await c.answer("Секунду…")
         return
     key = c.data.split(":", 1)[1]
