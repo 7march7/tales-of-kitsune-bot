@@ -436,7 +436,7 @@ async def start_test(c: CallbackQuery):
     await c.answer("Тест выдан")
 
 # ——— Админское PM из группы: /pm <user_id> [текст/медиа], без «светящейся» команды
-@dp.message(Command("pm")))
+@dp.message(Command("pm"))
 async def admin_pm(m: Message, command: CommandObject):
     if m.chat.type not in ("supergroup", "group"):
         return
