@@ -47,9 +47,10 @@ EXTRA_GUIDE_URL = (
 ROLE_INFO = {
     "translator": {
         "title": "Переводчик",
-        "desc": """Переводчик — человек, который смотрит на непонятные всем остальным смертным иероглифы 
-и пытается извлечь из них хоть какой-то смысл. 
-Он живёт на кофе, словарях и щепотке догадок.
+        "desc": """Существо редкое, почти мистическое.
+Он изучает древние письмена, полные странных знаков и смыслов, сокрытых от простых смертных,
+и извлекает из них истории, понятные человеческому сознанию. 
+Живёт на кофе, словарях и милости духов-кицунэ, что шепчут ему подсказки между строчек.
 
 Доступные языки:
 • Английский
@@ -57,9 +58,9 @@ ROLE_INFO = {
 • Корейский
 • Индонезийский
 
-Мы не приветствуем машинный перевод (с помощью онлайн-переводчиков и нейросетей).""",
-        "guide": "https://example.com/translator_guide",
-        "test_folder": "https://drive.google.com/translator_test"
+Современные чары машинного перевода и нейросетей можно звать на помощь, но не позволяйте им творить вместо вас.""",
+        "guide": "https://docs.google.com/document/d/17aIy4CmRICW-Rcs3PCMP5huaRjJU8GpRCbvhqx6W8UM/edit?usp=sharing",
+        "test_folder": "https://drive.google.com/drive/folders/1jferUktlsctxsRWYmHiqU7gHr6JE6eyJ?usp=sharing"
     },
 
     "editor": {
@@ -218,8 +219,8 @@ def apply_info_block(key: str) -> str:
     # >>> добавили постоянную ссылку в вывод
     return (
         f"{title}\n{desc}\n\n"
-        f"Методичка: {guide}\n"
-        f"Общие требования: {EXTRA_GUIDE_URL}"
+        f"Правила: {guide}\n"
+        f"Методичка: {EXTRA_GUIDE_URL}"
     )
 
 def _cb_too_fast_for_key(user_id: int, data: str) -> bool:
