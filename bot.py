@@ -438,13 +438,13 @@ async def start_test(c: CallbackQuery):
 # ——— Админское PM из группы: /pm <user_id> [текст/медиа], без «светящейся» команды
 @dp.message(Command("pm"))
 async def admin_pm(m: Message, command: CommandObject):
-    # Только из групп/супергрупп и только от админов
+    # только из групп/супергрупп и только от админов
     if m.chat.type not in ("supergroup", "group"):
         return
     if ADMIN_IDS and m.from_user.id not in ADMIN_IDS:
         return
 
-    # Разбор аргументов: /pm <user_id> [текст...]
+    # /pm <user_id> [текст...]
     args = (command.args or "").split(maxsplit=1)
     if not args:
         await m.reply("Использование: /pm <user_id> [текст или медиа]")
@@ -456,15 +456,22 @@ async def admin_pm(m: Message, command: CommandObject):
         await m.reply("Неверный формат. Пример: /pm 12345678 Привет или фото.")
         return
 
-    # Текст для подписи (БЕЗ команды). Не используем m.caption!
-    text_body = args[1] if len(args) > 1 else ""
-    caption_base = "Сообщение от куратора:"
-    caption = f"{caption_base}\n\n{text_body}" if text_body else caption_base
-
     has_media = any([m.photo, m.document, m.video, m.animation, m.voice, m.audio, m.sticker])
 
     try:
         if has_media:
+            # 1) если есть подпись — чистим из неё "/pm <id>" в начале
+            raw_caption = m.caption or ""
+            clean_caption = re.sub(r"(?i)^/pm\s+\d+\s*", "", raw_caption).strip()
+
+            # 2) если подписи не было, берём текстовую часть после user_id из команды
+            if not clean_caption and len(args) > 1:
+                clean_caption = args[1].strip()
+
+            caption = "Сообщение от куратора:"
+            if clean_caption:
+                caption += "\n\n" + clean_caption
+
             if m.photo:
                 await bot.send_photo(user_id, m.photo[-1].file_id, caption=caption)
             elif m.document:
@@ -478,22 +485,25 @@ async def admin_pm(m: Message, command: CommandObject):
             elif m.voice:
                 await bot.send_voice(user_id, m.voice.file_id, caption=caption)
             elif m.sticker:
-                # У стикера нет подписи: сначала стикер, потом текст (если есть)
+                # у стикера подписи нет
                 await bot.send_sticker(user_id, m.sticker.file_id)
-                if text_body:
+                if clean_caption or len(args) > 1:
                     await bot.send_message(user_id, caption)
             else:
-                # На всякий случай fallback
+                # на всякий случай
                 await bot.send_message(user_id, caption)
         else:
-            # Текст без медиа
-            await bot.send_message(user_id, caption)
+            # обычный текст без медиа
+            text_body = args[1].strip() if len(args) > 1 else ""
+            msg = "Сообщение от куратора:"
+            if text_body:
+                msg += "\n\n" + text_body
+            await bot.send_message(user_id, msg)
 
+        # ничего не редактируем/не удаляем в админском чате — оставляем исходное сообщение
         await m.reply("✅ Сообщение отправлено пользователю.")
-        # НИЧЕГО не редактируем/не удаляем в админском чате, чтобы всё было видно
     except Exception as e:
         await m.reply(f"⚠️ Не удалось отправить: {e}")
-
 
 
 # ——— Приём контента ОТ ПОЛЬЗОВАТЕЛЕЙ и пересылка в админскую тему ВСЕГДА
