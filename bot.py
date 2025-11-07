@@ -145,7 +145,7 @@ _USER_LOCKS: dict[int, asyncio.Lock] = {}
 def main_menu():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="જ⁀➴ О команде", callback_data="about")],
-        [InlineKeyboardButton(text="Подать заявку <┈╯, callback_data="apply")]
+        [InlineKeyboardButton(text="Подать заявку <┈╯", callback_data="apply")]
     ])
 
 
