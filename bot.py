@@ -37,11 +37,17 @@ ROLE_TOPICS = {
     "typecheck":  int(os.getenv("THREAD_TYPECHECK_ID", "0")),
 }
 
+# >>> Постоянная ссылка, которую нужно показывать ПРИ ЛЮБОЙ специальности
+EXTRA_GUIDE_URL = (
+    "https://docs.google.com/document/d/1kfJ18MnWzpWa6n4oSTYEn0tisz3VNC0a/"
+    "edit?usp=sharing&ouid=104155753409319228630&rtpof=true&sd=true"
+)
+
 # инфо по ролям (подставь свои ссылки при желании)
 ROLE_INFO = {
-"translator": {
-    "title": "Переводчик",
-    "desc": """Переводчик — человек, который смотрит на непонятные всем остальным смертным иероглифы 
+    "translator": {
+        "title": "Переводчик",
+        "desc": """Переводчик — человек, который смотрит на непонятные всем остальным смертным иероглифы 
 и пытается извлечь из них хоть какой-то смысл. 
 Он живёт на кофе, словарях и щепотке догадок.
 
@@ -52,9 +58,9 @@ ROLE_INFO = {
 • Индонезийский
 
 Мы не приветствуем машинный перевод (с помощью онлайн-переводчиков и нейросетей).""",
-    "guide": "https://example.com/translator_guide",
-    "test_folder": "https://drive.google.com/translator_test"
-},
+        "guide": "https://example.com/translator_guide",
+        "test_folder": "https://drive.google.com/translator_test"
+    },
 
     "editor": {
         "title": "Редактор",
@@ -209,7 +215,12 @@ def apply_info_block(key: str) -> str:
     title = info.get("title", key)
     desc = info.get("desc", "Описание скоро будет.")
     guide = info.get("guide", "—")
-    return f"{title}\n{desc}\n\nМетодичка: {guide}"
+    # >>> добавили постоянную ссылку в вывод
+    return (
+        f"{title}\n{desc}\n\n"
+        f"Методичка: {guide}\n"
+        f"Общие требования: {EXTRA_GUIDE_URL}"
+    )
 
 def _cb_too_fast_for_key(user_id: int, data: str) -> bool:
     key = data.split(":", 1)[0] if data else ""
@@ -239,9 +250,6 @@ async def schedule_deadline_notify(user_id: int, role_key: str, started_at: date
             f"Пользователь: id {user_id}{username}\n"
             f"Дедлайн: {deadline.strftime('%Y-%m-%d %H:%M %Z') or deadline.isoformat()}"
         )
-
-
-
         if GROUP_ID:
             if thread_id:
                 await bot.send_message(GROUP_ID, text, message_thread_id=thread_id)
@@ -400,7 +408,6 @@ async def vacancy_show(c: CallbackQuery):
     key = c.data.split(":", 1)[1]
     st = STATE.setdefault(c.from_user.id, {})
     st["role"] = key
-    # запоминаем как «последнюю роль»
     USER_LAST_ROLE[c.from_user.id] = key
 
     await render_screen(
@@ -423,7 +430,7 @@ async def apply_role_intro(c: CallbackQuery):
 
     await render_screen(
         c.from_user.id, c.message.chat.id,
-        apply_info_block(key),
+        apply_info_block(key),   # ← тут уже внутри появится ОБЩАЯ ссылка
         reply_markup=start_test_keyboard(key)
     )
     await c.answer()
@@ -439,7 +446,6 @@ async def start_test(c: CallbackQuery):
     folder = info.get("test_folder", "—")
     st = STATE.setdefault(c.from_user.id, {})
     st["deadline"] = datetime.now(timezone.utc)
-    # на всякий — тоже запоминаем роль
     st["role"] = key
     USER_LAST_ROLE[c.from_user.id] = key
 
@@ -460,13 +466,11 @@ async def start_test(c: CallbackQuery):
 # ——— Админское PM из группы: /pm <user_id> [текст/медиа], без «светящейся» команды
 @dp.message(Command("pm"))
 async def admin_pm(m: Message, command: CommandObject):
-    # только из групп/супергрупп и только от админов
     if m.chat.type not in ("supergroup", "group"):
         return
     if ADMIN_IDS and m.from_user.id not in ADMIN_IDS:
         return
 
-    # /pm <user_id> [текст...]
     args = (command.args or "").split(maxsplit=1)
     if not args:
         await m.reply("Использование: /pm <user_id> [текст или медиа]")
@@ -482,11 +486,9 @@ async def admin_pm(m: Message, command: CommandObject):
 
     try:
         if has_media:
-            # 1) если есть подпись — чистим из неё "/pm <id>" в начале
             raw_caption = m.caption or ""
             clean_caption = re.sub(r"(?i)^/pm\s+\d+\s*", "", raw_caption).strip()
 
-            # 2) если подписи не было, берём текстовую часть после user_id из команды
             if not clean_caption and len(args) > 1:
                 clean_caption = args[1].strip()
 
@@ -507,31 +509,25 @@ async def admin_pm(m: Message, command: CommandObject):
             elif m.voice:
                 await bot.send_voice(user_id, m.voice.file_id, caption=caption)
             elif m.sticker:
-                # у стикера подписи нет
                 await bot.send_sticker(user_id, m.sticker.file_id)
                 if clean_caption or len(args) > 1:
                     await bot.send_message(user_id, caption)
             else:
-                # на всякий случай
                 await bot.send_message(user_id, caption)
         else:
-            # обычный текст без медиа
             text_body = args[1].strip() if len(args) > 1 else ""
             msg = "Сообщение от куратора:"
             if text_body:
                 msg += "\n\n" + text_body
             await bot.send_message(user_id, msg)
 
-        # ничего не редактируем/не удаляем в админском чате — оставляем исходное сообщение
         await m.reply("✅ Сообщение отправлено пользователю.")
     except Exception as e:
         await m.reply(f"⚠️ Не удалось отправить: {e}")
 
-
 # ——— Приём контента ОТ ПОЛЬЗОВАТЕЛЕЙ и пересылка в админскую тему ВСЕГДА
 @dp.message()
 async def collect_and_forward(m: Message):
-    # в приватах ловим всё, кроме команд
     if m.chat.type != "private":
         return
     if m.text and m.text.startswith("/"):
@@ -541,13 +537,10 @@ async def collect_and_forward(m: Message):
     role_key = st.get("role") or USER_LAST_ROLE.get(m.from_user.id)
     role_title_text = role_title(role_key) if role_key else "—"
 
-    # куда слать: в тему по роли, если есть; иначе в общий поток группы
     thread_id = ROLE_TOPICS.get(role_key) if role_key else None
 
     username = f"@{m.from_user.username}" if m.from_user.username else "—"
-    header = (
-        f"📥 Сообщение от {username} (id {m.from_user.id}) | Роль: {role_title_text}"
-    )
+    header = f"📥 Сообщение от {username} (id {m.from_user.id}) | Роль: {role_title_text}"
 
     try:
         if GROUP_ID:
@@ -557,12 +550,8 @@ async def collect_and_forward(m: Message):
             else:
                 await bot.send_message(GROUP_ID, header)
                 await m.copy_to(GROUP_ID)
-
-        # Пользователю — короткий автоответ, если хочешь, можно убрать:
-        # await bot.send_message(m.chat.id, "Принято. Сообщение отправлено кураторам.")
     except Exception as e:
         print("Forward error:", e)
-        # мягкий фоллбек без разглашения технической чуши пользователю
         try:
             await bot.send_message(m.chat.id, "Не получилось доставить сообщение кураторам. Попробуйте ещё раз позже.")
         except Exception:
