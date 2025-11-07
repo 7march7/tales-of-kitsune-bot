@@ -436,55 +436,58 @@ async def start_test(c: CallbackQuery):
 # ——— Админское PM из группы: /pm <user_id> [текст/медиа], без «светящейся» команды
 @dp.message(Command("pm"))
 async def admin_pm(m: Message, command: CommandObject):
+    # Разрешено только из группы и только админам (если список задан)
     if m.chat.type not in ("supergroup", "group"):
         return
     if ADMIN_IDS and m.from_user.id not in ADMIN_IDS:
         return
 
     if not command.args:
-        await m.reply("Использование: /pm <user_id> [текст или прикреплённые файлы]")
+        await m.reply("Использование: ответь на сообщение или прикрепи медиа и напиши:\n/pm <user_id> [комментарий]")
         return
 
+    # user_id и опциональный комментарий
     try:
-        user_id = int(command.args.split(maxsplit=1)[0])
+        parts = command.args.split(maxsplit=1)
+        user_id = int(parts[0])
+        extra_text = parts[1] if len(parts) > 1 else ""
     except Exception:
-        await m.reply("Неверный формат. Пример: /pm 12345678 Привет или фото.")
+        await m.reply("Неверный формат. Пример: /pm 123456 Привет.")
         return
 
-    has_media = any([
-        m.photo, m.document, m.video, m.animation,
-        m.voice, m.audio, m.sticker
-    ])
-
+    header = "Сообщение от куратора:"
     try:
-        if has_media:
-            caption = "Сообщение от куратора:"
-            if m.caption:
-                caption += "\n\n" + m.caption
+        if m.reply_to_message:
+            # РЕЖИМ 1: реплай на исходное сообщение (любой контент)
+            orig = m.reply_to_message
+            orig_caption = orig.caption or ""
+            final_caption = "\n\n".join(
+                [t for t in [header, extra_text if extra_text else None, orig_caption if orig_caption else None] if t]
+            )
+            await orig.copy_to(user_id, caption=final_caption)
 
-            if m.photo:
-                await bot.send_photo(user_id, m.photo[-1].file_id, caption=caption)
-            elif m.document:
-                await bot.send_document(user_id, m.document.file_id, caption=caption)
-            elif m.video:
-                await bot.send_video(user_id, m.video.file_id, caption=caption)
-            elif m.animation:
-                await bot.send_animation(user_id, m.animation.file_id, caption=caption)
-            elif m.audio:
-                await bot.send_audio(user_id, m.audio.file_id, caption=caption)
-            elif m.voice:
-                await bot.send_voice(user_id, m.voice.file_id, caption=caption)
-            elif m.sticker:
-                await bot.send_sticker(user_id, m.sticker.file_id)
-            else:
-                await bot.send_message(user_id, caption)
         else:
-            text = " ".join(command.args.split(maxsplit=1)[1:]) if len(command.args.split()) > 1 else ""
-            await bot.send_message(user_id, f"Сообщение от куратора:\n\n{text}")
+            # РЕЖИМ 2: медиа/текст в самой команде (/pm ... в подписи)
+            has_media = any([m.photo, m.document, m.video, m.animation, m.voice, m.audio, m.sticker])
+            if has_media:
+                # Пересылаем САМО сообщение-Команду, но подменяем подпись, чтобы не светился /pm
+                final_caption = "\n\n".join([t for t in [header, extra_text if extra_text else None] if t]) or header
+                await m.copy_to(user_id, caption=final_caption)
+            else:
+                # Просто текст
+                final_text = "\n\n".join([t for t in [header, extra_text if extra_text else None] if t]) or header
+                await bot.send_message(user_id, final_text)
 
-        await m.reply("✅ Сообщение отправлено пользователю.")
+        # Прячем саму команду из чата
+        try:
+            await m.delete()
+        except Exception:
+            pass
+
+        await bot.send_message(m.chat.id, "✅ Сообщение отправлено пользователю.")
     except Exception as e:
-        await m.reply(f"⚠️ Не удалось отправить: {e}")
+        await bot.send_message(m.chat.id, f"⚠️ Не удалось отправить: {e}")
+
 
 # ——— Прием контента в рамках заявки и пересылка в тему
 @dp.message()
