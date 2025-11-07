@@ -344,7 +344,7 @@ async def topic_id(m: Message):
 @dp.callback_query(F.data == "about")
 async def on_about(c: CallbackQuery):
     if _cb_too_fast_for_key(c.from_user.id, c.data):
-        await c.answer("Секунду…")
+        await c.answer("Притормози, лисёнок...")
         return
     await render_screen(
         c.from_user.id, c.message.chat.id,
@@ -362,7 +362,7 @@ async def on_about(c: CallbackQuery):
 @dp.callback_query(F.data == "vacancies")
 async def on_vacancies(c: CallbackQuery):
     if _cb_too_fast_for_key(c.from_user.id, c.data):
-        await c.answer("Секунду…")
+        await c.answer("Притормози, лисёнок...")
         return
     st = STATE.setdefault(c.from_user.id, {})
     st.update({"flow": "vacancies", "role": None})
@@ -372,7 +372,7 @@ async def on_vacancies(c: CallbackQuery):
 @dp.callback_query(F.data == "apply")
 async def on_apply(c: CallbackQuery):
     if _cb_too_fast_for_key(c.from_user.id, c.data):
-        await c.answer("Секунду…")
+        await c.answer("Притормози, лисёнок...")
         return
     st = STATE.setdefault(c.from_user.id, {})
     st.update({"flow": "apply", "role": None})
@@ -382,7 +382,7 @@ async def on_apply(c: CallbackQuery):
 @dp.callback_query(F.data == "back:menu")
 async def on_back_menu(c: CallbackQuery):
     if _cb_too_fast_for_key(c.from_user.id, c.data):
-        await c.answer("Секунду…")
+        await c.answer("Притормози, лисёнок...")
         return
     st = STATE.setdefault(c.from_user.id, {})
     st.update({"flow": None, "role": None})
@@ -392,7 +392,7 @@ async def on_back_menu(c: CallbackQuery):
 @dp.callback_query(F.data == "back:vacancies")
 async def on_back_vacancies(c: CallbackQuery):
     if _cb_too_fast_for_key(c.from_user.id, c.data):
-        await c.answer("Секунду…")
+        await c.answer("Притормози, лисёнок...")
         return
     st = STATE.setdefault(c.from_user.id, {})
     st.update({"flow": "vacancies", "role": None})
@@ -402,7 +402,7 @@ async def on_back_vacancies(c: CallbackQuery):
 @dp.callback_query(F.data == "back:applyroles")
 async def on_back_applyroles(c: CallbackQuery):
     if _cb_too_fast_for_key(c.from_user.id, c.data):
-        await c.answer("Секунду…")
+        await c.answer("Притормози, лисёнок...")
         return
     st = STATE.setdefault(c.from_user.id, {})
     st.update({"flow": "apply", "role": None})
@@ -413,7 +413,7 @@ async def on_back_applyroles(c: CallbackQuery):
 @dp.callback_query(F.data.startswith("v:"))
 async def vacancy_show(c: CallbackQuery):
     if _cb_too_fast_for_key(c.from_user.id, c.data):
-        await c.answer("Секунду…")
+        await c.answer("Притормози, лисёнок...")
         return
     key = c.data.split(":", 1)[1]
     st = STATE.setdefault(c.from_user.id, {})
@@ -431,7 +431,7 @@ async def vacancy_show(c: CallbackQuery):
 @dp.callback_query(F.data.startswith("a:"))
 async def apply_role_intro(c: CallbackQuery):
     if _cb_too_fast_for_key(c.from_user.id, c.data):
-        await c.answer("Секунду…")
+        await c.answer("Притормози, лисёнок...")
         return
     key = c.data.split(":", 1)[1]
     st = STATE.setdefault(c.from_user.id, {})
@@ -449,7 +449,7 @@ async def apply_role_intro(c: CallbackQuery):
 @dp.callback_query(F.data.startswith("starttest:"))
 async def start_test(c: CallbackQuery):
     if _cb_too_fast_for_key(c.from_user.id, c.data):
-        await c.answer("Секунду…")
+        await c.answer("Притормози, лисёнок...")
         return
     key = c.data.split(":", 1)[1]
     info = ROLE_INFO.get(key, {})
@@ -462,7 +462,7 @@ async def start_test(c: CallbackQuery):
     await render_screen(
         c.from_user.id, c.message.chat.id,
         "Заполните анкету по форме ниже (отправьте одним сообщением — пункты можно перечислить):\n"
-        "Имя / Ник\nОпыт (если есть)\nЧасовой пояс\nГотовность по времени\n\n"
+        "Имя (при желании указать) / Ник (как к вам обращаться)\nНаличие/отсутствие опыта (при желании указать)\nКоличество свободного времени в неделю\nДополнительные полезные навыки/знания (работа в приложениях, с нейросетями, знание EXCEL/Google docs и прочее)\n\n"
         f"Папка с тестовым заданием: {folder}\n"
         f"Дедлайн: {TEST_DEADLINE_DAYS} дня.",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
