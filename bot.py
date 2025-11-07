@@ -95,8 +95,8 @@ ROLE_INFO = {
     "typecheck": {
         "title": "Тайп-чекер",
         "desc": "Проверяет соответствие тайпа гайдам и аккуратность.",
-        "guide": "https://example.com/typecheck_guide",
-        "test_folder": "https://drive.google.com/typecheck_test"
+        "guide": "https://docs.google.com/document/d/1kfJ18MnWzpWa6n4oSTYEn0tisz3VNC0a/edit?usp=sharing&ouid=104155753409319228630&rtpof=true&sd=true",
+        "test_folder": "https://drive.google.com/drive/folders/1jHYnfP7HGuJZFaM_VOJ1UWe-VLrTvLdw?usp=sharing"
     },
 }
 
