@@ -443,26 +443,29 @@ async def admin_pm(m: Message, command: CommandObject):
     if ADMIN_IDS and m.from_user.id not in ADMIN_IDS:
         return
 
-    if not command.args:
-        await m.reply("Использование: /pm <user_id> [текст или прикреплённые файлы]")
+    # Извлекаем ID пользователя и текст, но не включаем саму команду
+    args = (command.args or "").split(maxsplit=1)
+    if not args:
+        await m.reply("Использование: /pm <user_id> [текст или медиа]")
         return
 
     try:
-        user_id = int(command.args.split(maxsplit=1)[0])
-    except Exception:
+        user_id = int(args[0])
+    except ValueError:
         await m.reply("Неверный формат. Пример: /pm 12345678 Привет или фото.")
         return
 
-    has_media = any([
-        m.photo, m.document, m.video, m.animation,
-        m.voice, m.audio, m.sticker
-    ])
+    text = args[1] if len(args) > 1 else ""
+    has_media = any([m.photo, m.document, m.video, m.animation, m.voice, m.audio, m.sticker])
 
     try:
+        # если есть медиа
         if has_media:
             caption = "Сообщение от куратора:"
             if m.caption:
                 caption += "\n\n" + m.caption
+            elif text:
+                caption += "\n\n" + text
 
             if m.photo:
                 await bot.send_photo(user_id, m.photo[-1].file_id, caption=caption)
@@ -481,14 +484,14 @@ async def admin_pm(m: Message, command: CommandObject):
             else:
                 await bot.send_message(user_id, caption)
         else:
-            parts = command.args.split(maxsplit=1)
-            text = parts[1] if len(parts) > 1 else ""
+            # только текст
             await bot.send_message(user_id, f"Сообщение от куратора:\n\n{text}")
 
         await m.reply("✅ Сообщение отправлено пользователю.")
-        # не затираем исходный пост в группе — админы видят, что именно отправили
+        # не затираем сообщение в чате админов
     except Exception as e:
         await m.reply(f"⚠️ Не удалось отправить: {e}")
+
 
 # ——— Приём контента ОТ ПОЛЬЗОВАТЕЛЕЙ и пересылка в админскую тему ВСЕГДА
 @dp.message()
