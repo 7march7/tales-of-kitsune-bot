@@ -13,19 +13,19 @@ from aiogram.types import (
     Message, CallbackQuery
 )
 
+# >>> NEW: включаем HTML в качестве дефолтного parse_mode для всего бота
+from aiogram.client.default import DefaultBotProperties          # <<<
+from aiogram.enums import ParseMode                              # <<<
+
 # ============ CONFIG ============
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 if not BOT_TOKEN:
     raise RuntimeError("BOT_TOKEN is not set")
 
-# супергруппа с включенными темами (форум)
-GROUP_ID = int(os.getenv("GROUP_ID", "0"))  # пример: -1001234567890
-
-# список админов, кому разрешено /pm из группы
+GROUP_ID = int(os.getenv("GROUP_ID", "0"))
 ADMIN_IDS = {int(x) for x in os.getenv("ADMIN_IDS", "").split(",") if x.strip().isdigit()}
 
-# ID тем по ролям (вкладки форума)
 ROLE_TOPICS = {
     "translator": int(os.getenv("THREAD_TRANSLATOR_ID", "0")),
     "editor":     int(os.getenv("THREAD_EDITOR_ID", "0")),
@@ -37,13 +37,11 @@ ROLE_TOPICS = {
     "typecheck":  int(os.getenv("THREAD_TYPECHECK_ID", "0")),
 }
 
-# Постоянная ссылка, которую нужно показывать ПРИ ЛЮБОЙ специальности
 EXTRA_GUIDE_URL = (
     "https://docs.google.com/document/d/1kfJ18MnWzpWa6n4oSTYEn0tisz3VNC0a/"
     "edit?usp=sharing&ouid=104155753409319228630&rtpof=true&sd=true"
 )
 
-# инфо по ролям (подставь свои ссылки при желании)
 ROLE_INFO = {
     "translator": {
         "title": "Переводчик",
@@ -62,7 +60,6 @@ ROLE_INFO = {
         "guide": "https://docs.google.com/document/d/1fKu8n-1nLpgLHV2-XNPM-HeBaCFlpX23lbAdXDllB-A/edit?usp=sharing",
         "test_folder": "https://drive.google.com/drive/folders/1jferUktlsctxsRWYmHiqU7gHr6JE6eyJ?usp=sharing"
     },
-
     "editor": {
         "title": "Редактор",
         "desc": """Хранитель чистоты слова и проводник смысла.
@@ -81,7 +78,7 @@ ROLE_INFO = {
         "title": "Тайпер",
         "desc": """Заклинатель текста, что вплетает слова в очищенные страницы.
 Он подбирает шрифты, ловит ритм строк и старается приручить капризные баблы…""",
-        "guide": "https://docs.google.com/document/d/1Xd7Nn0UPS9372f5otgyv8FfO0hGfyNLP/edit?usp=sharing&ouid=104155753409319228630&rtpof=true&sd=true",
+        "guide": "https://docs.google.com/document/d/1Xd7Nn0UPS9372f5otgyv8FfО0hGfyNLP/edit?usp=sharing&ouid=104155753409319228630&rtpof=true&sd=true",
         "test_folder": "https://drive.google.com/drive/folders/1VVrAiriLncotiKkII5_xbAsIyystDtXq?usp=sharing"
     },
     "gluer": {
@@ -116,28 +113,22 @@ ROLE_INFO = {
 }
 
 TEST_DEADLINE_DAYS = int(os.getenv("TEST_DEADLINE_DAYS", "3"))
-PORT = int(os.getenv("PORT", "10000"))  # для Render/Uptime
+PORT = int(os.getenv("PORT", "10000"))
 
 # ============ BOT CORE ============
 
-bot = Bot(BOT_TOKEN)
+# >>> HTML включён глобально
+bot = Bot(
+    BOT_TOKEN,
+    default=DefaultBotProperties(parse_mode=ParseMode.HTML)     # <<<
+)
 dp = Dispatcher()
 
-# состояние пользователей:
-# user_id -> {"flow": ..., "role": ..., "deadline": datetime|None, "msg_id": int|None, "chat_id": int|None}
 STATE = {}
-
-# долговременная "память" последней роли пользователя (чтобы принимать сообщения ВСЕГДА)
 USER_LAST_ROLE: dict[int, str] = {}
-
-# антидребезг /start
 _LAST_START_AT: dict[int, float] = {}
-
-# антидребезг callback-кнопок
 _LAST_CB_KEY_AT: dict[tuple[int, str], float] = {}
 _CB_DEBOUNCE_SEC = 2.5
-
-# замки на «экран» пользователя
 _USER_LOCKS: dict[int, asyncio.Lock] = {}
 
 # ============ KEYBOARDS ============
@@ -147,7 +138,6 @@ def main_menu():
         [InlineKeyboardButton(text="જ⁀➴ О команде", callback_data="about")],
         [InlineKeyboardButton(text="Подать заявку <┈╯", callback_data="apply")]
     ])
-
 
 def vacancies_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
@@ -222,11 +212,10 @@ def apply_info_block(key: str) -> str:
     title = info.get("title", key)
     desc = info.get("desc", "Описание скоро будет.")
     guide = info.get("guide", "—")
-    # добавлена постоянная ссылка (EXTRA_GUIDE_URL)
     return (
-        f"{title}\n{desc}\n\n"
-        f"Правила: {guide}\n"
-        f"Методичка: {EXTRA_GUIDE_URL}"
+        f"<b>{title}</b>\n{desc}\n\n"
+        f"<b>Правила:</b> {guide}\n"
+        f"<b>Методичка:</b> {EXTRA_GUIDE_URL}"
     )
 
 def _cb_too_fast_for_key(user_id: int, data: str) -> bool:
@@ -252,8 +241,8 @@ async def schedule_deadline_notify(user_id: int, role_key: str, started_at: date
 
     try:
         text = (
-            "⏳ Выдано тестовое задание\n"
-            f"Роль: {title}\n"
+            "⏳ <b>Выдано тестовое задание</b>\n"
+            f"Роль: <b>{title}</b>\n"
             f"Пользователь: id {user_id}{username}\n"
             f"Дедлайн: {deadline.strftime('%Y-%m-%d %H:%M %Z') or deadline.isoformat()}"
         )
@@ -284,7 +273,7 @@ async def render_screen(
     text: str,
     *,
     reply_markup=None,
-    parse_mode: str | None = None
+    parse_mode: str | None = ParseMode.HTML   # <<< HTML по умолчанию
 ):
     lock = _USER_LOCKS.setdefault(user_id, asyncio.Lock())
     async with lock:
@@ -337,7 +326,7 @@ async def cmd_start(m: Message):
     STATE[m.from_user.id] = {"flow": None, "role": None, "deadline": None, "msg_id": None, "chat_id": None}
     await render_screen(
         m.from_user.id, m.chat.id,
-        """ㅤㅤ🐾『𝐓𝐚𝐥𝐞𝐬 𝐨𝐟 𝐊𝐢𝐭𝐬𝐮𝐧𝐞』 🐾
+        """ㅤㅤㅤ🐾『𝐓𝐚𝐥𝐞𝐬 𝐨𝐟 𝐊𝐢𝐭𝐬𝐮𝐧𝐞』 🐾
         ㅤУзнай легенды логова иㅤ
         правила его обитателей, аㅤ
         затем оставь свою заявку,ㅤ
@@ -387,19 +376,9 @@ async def on_about(c: CallbackQuery):
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="« Назад", callback_data="back:menu"),
              InlineKeyboardButton(text="Подать заявку", callback_data="apply")]
-        ]),
-        parse_mode="HTML"
+        ])
+        # parse_mode тут не указываем — уже включён глобально
     )
-    await c.answer()
-
-@dp.callback_query(F.data == "vacancies")
-async def on_vacancies(c: CallbackQuery):
-    if _cb_too_fast_for_key(c.from_user.id, c.data):
-        await c.answer("Притормози, лисёнок...")
-        return
-    st = STATE.setdefault(c.from_user.id, {})
-    st.update({"flow": "vacancies", "role": None})
-    await render_screen(c.from_user.id, c.message.chat.id, "Выбери специальность:", reply_markup=vacancies_keyboard())
     await c.answer()
 
 @dp.callback_query(F.data == "apply")
@@ -412,6 +391,16 @@ async def on_apply(c: CallbackQuery):
     await render_screen(c.from_user.id, c.message.chat.id, "Выбери специальность для подачи заявки:", reply_markup=apply_roles_keyboard())
     await c.answer()
 
+@dp.callback_query(F.data == "vacancies")
+async def on_vacancies(c: CallbackQuery):
+    if _cb_too_fast_for_key(c.from_user.id, c.data):
+        await c.answer("Притормози, лисёнок...")
+        return
+    st = STATE.setdefault(c.from_user.id, {})
+    st.update({"flow": "vacancies", "role": None})
+    await render_screen(c.from_user.id, c.message.chat.id, "Выбери специальность:", reply_markup=vacancies_keyboard())
+    await c.answer()
+
 @dp.callback_query(F.data == "back:menu")
 async def on_back_menu(c: CallbackQuery):
     if _cb_too_fast_for_key(c.from_user.id, c.data):
@@ -419,9 +408,16 @@ async def on_back_menu(c: CallbackQuery):
         return
     st = STATE.setdefault(c.from_user.id, {})
     st.update({"flow": None, "role": None})
-    await render_screen(c.from_user.id, c.message.chat.id,
-                        "Узнай легенды Логова и правила его обитателей, а затем оставь свою заявку, если готов присоединиться к стае.",
-                        reply_markup=main_menu())
+    await render_screen(
+        c.from_user.id, c.message.chat.id,
+        """ㅤㅤㅤ🐾『𝐓𝐚𝐥𝐞𝐬 𝐨𝐟 𝐊𝐢𝐭𝐬𝐮𝐧𝐞』 🐾
+        ㅤУзнай легенды логова иㅤ
+        правила его обитателей, аㅤ
+        затем оставь свою заявку,ㅤ
+        если готов присоединить-
+        ㅤся к стае.༄˖°.🍂.ೃ࿔*:･ㅤ""",
+        reply_markup=main_menu()
+    )
     await c.answer()
 
 @dp.callback_query(F.data == "back:vacancies")
@@ -441,12 +437,13 @@ async def on_back_applyroles(c: CallbackQuery):
         return
     st = STATE.setdefault(c.from_user.id, {})
     st.update({"flow": "apply", "role": None})
-    await render_screen(c.from_user.id, c.message.chat.id,
-                        "Выбери направление, в котором раскроется твой талант под покровительством кицунэ.",
-                        reply_markup=apply_roles_keyboard())
+    await render_screen(
+        c.from_user.id, c.message.chat.id,
+        "Выбери направление, в котором раскроется твой талант под покровительством кицунэ.",
+        reply_markup=apply_roles_keyboard()
+    )
     await c.answer()
 
-# ——— Вакансии: показать описание роли
 @dp.callback_query(F.data.startswith("v:"))
 async def vacancy_show(c: CallbackQuery):
     if _cb_too_fast_for_key(c.from_user.id, c.data):
@@ -464,7 +461,6 @@ async def vacancy_show(c: CallbackQuery):
     )
     await c.answer()
 
-# ——— Подача: роль + методичка + старт теста
 @dp.callback_query(F.data.startswith("a:"))
 async def apply_role_intro(c: CallbackQuery):
     if _cb_too_fast_for_key(c.from_user.id, c.data):
@@ -482,7 +478,6 @@ async def apply_role_intro(c: CallbackQuery):
     )
     await c.answer()
 
-# ——— Старт теста
 @dp.callback_query(F.data.startswith("starttest:"))
 async def start_test(c: CallbackQuery):
     if _cb_too_fast_for_key(c.from_user.id, c.data):
@@ -513,7 +508,6 @@ async def start_test(c: CallbackQuery):
     asyncio.create_task(schedule_deadline_notify(c.from_user.id, key, st["deadline"]))
     await c.answer("Тест выдан")
 
-# ——— Админское PM из группы: /pm <user_id> [текст/медиа], без «светящейся» команды
 @dp.message(Command("pm"))
 async def admin_pm(m: Message, command: CommandObject):
     if m.chat.type not in ("supergroup", "group"):
@@ -538,7 +532,6 @@ async def admin_pm(m: Message, command: CommandObject):
         if has_media:
             raw_caption = m.caption or ""
             clean_caption = re.sub(r"(?i)^/pm\s+\d+\s*", "", raw_caption).strip()
-
             if not clean_caption and len(args) > 1:
                 clean_caption = args[1].strip()
 
@@ -575,7 +568,6 @@ async def admin_pm(m: Message, command: CommandObject):
     except Exception as e:
         await m.reply(f"⚠️ Не удалось отправить: {e}")
 
-# ——— Приём контента ОТ ПОЛЬЗОВАТЕЛЕЙ и пересылка в админскую тему ВСЕГДА
 @dp.message()
 async def collect_and_forward(m: Message):
     if m.chat.type != "private":
