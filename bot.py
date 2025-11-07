@@ -19,7 +19,7 @@ if not BOT_TOKEN:
     raise RuntimeError("BOT_TOKEN is not set")
 
 # супергруппа с включенными темами (форум)
-GROUP_ID = int(os.getenv("GROUP_ID", "0"))            # пример: -1001234567890
+GROUP_ID = int(os.getenv("GROUP_ID", "0"))  # пример: -1001234567890
 
 # список админов, кому разрешено /pm из группы
 ADMIN_IDS = {int(x) for x in os.getenv("ADMIN_IDS", "").split(",") if x.strip().isdigit()}
@@ -36,7 +36,7 @@ ROLE_TOPICS = {
     "typecheck":  int(os.getenv("THREAD_TYPECHECK_ID", "0")),
 }
 
-# инфо по ролям (захочешь — подставь свои ссылки)
+# инфо по ролям (подставь свои ссылки при желании)
 ROLE_INFO = {
     "translator": {
         "title": "Переводчик",
@@ -89,9 +89,7 @@ ROLE_INFO = {
 }
 
 TEST_DEADLINE_DAYS = int(os.getenv("TEST_DEADLINE_DAYS", "3"))
-
-# фейковый http для Render Web Service
-PORT = int(os.getenv("PORT", "10000"))
+PORT = int(os.getenv("PORT", "10000"))  # для Render/Uptime
 
 # ============ BOT CORE ============
 
@@ -105,9 +103,10 @@ STATE = {}
 # антидребезг /start
 _LAST_START_AT: dict[int, float] = {}
 
-# антидребезг callback-кнопок
-_LAST_CB_AT: dict[int, float] = {}
-_CB_DEBOUNCE_SEC = 0.8
+# антидребезг callback-кнопок: «по пользователю и ключу»
+# ключ = первая часть callback_data до двоеточия, напр. "v", "a", "starttest", "back"
+_LAST_CB_KEY_AT: dict[tuple[int, str], float] = {}
+_CB_DEBOUNCE_SEC = 2.2  # смело поднимай до 2.5, если всё ещё дублит
 
 # замки на «экран» пользователя
 _USER_LOCKS: dict[int, asyncio.Lock] = {}
@@ -198,13 +197,14 @@ def apply_info_block(key: str) -> str:
     guide = info.get("guide", "—")
     return f"{title}\n{desc}\n\nМетодичка: {guide}"
 
-def _cb_too_fast(user_id: int) -> bool:
-    """Антидребезг для callback: true, если жать слишком часто."""
+def _cb_too_fast_for_key(user_id: int, data: str) -> bool:
+    """Дебаунс по «ключу» кнопки: первая часть callback_data до ':'."""
+    key = data.split(":", 1)[0] if data else ""
     now = monotonic()
-    last = _LAST_CB_AT.get(user_id, 0.0)
+    last = _LAST_CB_KEY_AT.get((user_id, key), 0.0)
     if now - last < _CB_DEBOUNCE_SEC:
         return True
-    _LAST_CB_AT[user_id] = now
+    _LAST_CB_KEY_AT[(user_id, key)] = now
     return False
 
 async def schedule_deadline_notify(user_id: int, role_key: str, started_at: datetime):
@@ -304,6 +304,7 @@ async def cancel(m: Message):
 
 @dp.message(Command("topicid"))
 async def topic_id(m: Message):
+    # команду надо отправить ВНУТРИ темы в группе
     if getattr(m, "is_topic_message", False):
         await m.answer(f"ID этой темы: {m.message_thread_id}")
     else:
@@ -311,8 +312,8 @@ async def topic_id(m: Message):
 
 @dp.callback_query(F.data == "about")
 async def on_about(c: CallbackQuery):
-    if _cb_too_fast(c.from_user.id):
-        await c.answer()
+    if _cb_too_fast_for_key(c.from_user.id, c.data):
+        await c.answer("Секунду…")
         return
     await render_screen(
         c.from_user.id, c.message.chat.id,
@@ -326,8 +327,8 @@ async def on_about(c: CallbackQuery):
 
 @dp.callback_query(F.data == "vacancies")
 async def on_vacancies(c: CallbackQuery):
-    if _cb_too_fast(c.from_user.id):
-        await c.answer()
+    if _cb_too_fast_for_key(c.from_user.id, c.data):
+        await c.answer("Секунду…")
         return
     st = STATE.setdefault(c.from_user.id, {})
     st.update({"flow": "vacancies", "role": None})
@@ -336,8 +337,8 @@ async def on_vacancies(c: CallbackQuery):
 
 @dp.callback_query(F.data == "apply")
 async def on_apply(c: CallbackQuery):
-    if _cb_too_fast(c.from_user.id):
-        await c.answer()
+    if _cb_too_fast_for_key(c.from_user.id, c.data):
+        await c.answer("Секунду…")
         return
     st = STATE.setdefault(c.from_user.id, {})
     st.update({"flow": "apply", "role": None})
@@ -346,8 +347,8 @@ async def on_apply(c: CallbackQuery):
 
 @dp.callback_query(F.data == "back:menu")
 async def on_back_menu(c: CallbackQuery):
-    if _cb_too_fast(c.from_user.id):
-        await c.answer()
+    if _cb_too_fast_for_key(c.from_user.id, c.data):
+        await c.answer("Секунду…")
         return
     st = STATE.setdefault(c.from_user.id, {})
     st.update({"flow": None, "role": None})
@@ -356,8 +357,8 @@ async def on_back_menu(c: CallbackQuery):
 
 @dp.callback_query(F.data == "back:vacancies")
 async def on_back_vacancies(c: CallbackQuery):
-    if _cb_too_fast(c.from_user.id):
-        await c.answer()
+    if _cb_too_fast_for_key(c.from_user.id, c.data):
+        await c.answer("Секунду…")
         return
     st = STATE.setdefault(c.from_user.id, {})
     st.update({"flow": "vacancies", "role": None})
@@ -366,8 +367,8 @@ async def on_back_vacancies(c: CallbackQuery):
 
 @dp.callback_query(F.data == "back:applyroles")
 async def on_back_applyroles(c: CallbackQuery):
-    if _cb_too_fast(c.from_user.id):
-        await c.answer()
+    if _cb_too_fast_for_key(c.from_user.id, c.data):
+        await c.answer("Секунду…")
         return
     st = STATE.setdefault(c.from_user.id, {})
     st.update({"flow": "apply", "role": None})
@@ -377,8 +378,8 @@ async def on_back_applyroles(c: CallbackQuery):
 # ——— Вакансии: показать описание роли
 @dp.callback_query(F.data.startswith("v:"))
 async def vacancy_show(c: CallbackQuery):
-    if _cb_too_fast(c.from_user.id):
-        await c.answer()
+    if _cb_too_fast_for_key(c.from_user.id, c.data):
+        await c.answer("Секунду…")
         return
     key = c.data.split(":", 1)[1]
     st = STATE.setdefault(c.from_user.id, {})
@@ -393,8 +394,8 @@ async def vacancy_show(c: CallbackQuery):
 # ——— Подача: показать роль + методичка + кнопка "Пройти тестовое задание"
 @dp.callback_query(F.data.startswith("a:"))
 async def apply_role_intro(c: CallbackQuery):
-    if _cb_too_fast(c.from_user.id):
-        await c.answer()
+    if _cb_too_fast_for_key(c.from_user.id, c.data):
+        await c.answer("Секунду…")
         return
     key = c.data.split(":", 1)[1]
     st = STATE.setdefault(c.from_user.id, {})
@@ -409,8 +410,8 @@ async def apply_role_intro(c: CallbackQuery):
 # ——— Старт теста
 @dp.callback_query(F.data.startswith("starttest:"))
 async def start_test(c: CallbackQuery):
-    if _cb_too_fast(c.from_user.id):
-        await c.answer()
+    if _cb_too_fast_for_key(c.from_user.id, c.data):
+        await c.answer("Секунду…")
         return
     key = c.data.split(":", 1)[1]
     info = ROLE_INFO.get(key, {})
