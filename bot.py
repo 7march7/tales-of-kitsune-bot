@@ -364,7 +364,7 @@ async def start_test(c: CallbackQuery):
 # ——— Админское PM из группы: /pm <user_id> текст…
 @dp.message(Command("pm"))
 async def admin_pm(m: Message, command: CommandObject):
-    # Разрешаем только из группы и только администраторам
+    # Проверяем, что команда идёт из группы и от админа
     if m.chat.type not in ("supergroup", "group"):
         return
     if ADMIN_IDS and m.from_user.id not in ADMIN_IDS:
@@ -380,7 +380,7 @@ async def admin_pm(m: Message, command: CommandObject):
         await m.reply("Неверный формат. Пример: /pm 12345678 Привет или фото.")
         return
 
-    # --- если сообщение содержит медиа, пересылаем его ---
+    # Проверяем наличие медиа
     has_media = any([
         m.photo, m.document, m.video, m.animation,
         m.voice, m.audio, m.sticker
@@ -388,16 +388,34 @@ async def admin_pm(m: Message, command: CommandObject):
 
     try:
         if has_media:
-            # пересылаем исходное сообщение пользователю
-            await m.copy_to(user_id)
+            caption = "Сообщение от куратора:"
+            if m.caption:
+                caption += "\n\n" + m.caption
+
+            if m.photo:
+                await bot.send_photo(user_id, m.photo[-1].file_id, caption=caption)
+            elif m.document:
+                await bot.send_document(user_id, m.document.file_id, caption=caption)
+            elif m.video:
+                await bot.send_video(user_id, m.video.file_id, caption=caption)
+            elif m.animation:
+                await bot.send_animation(user_id, m.animation.file_id, caption=caption)
+            elif m.audio:
+                await bot.send_audio(user_id, m.audio.file_id, caption=caption)
+            elif m.voice:
+                await bot.send_voice(user_id, m.voice.file_id, caption=caption)
+            elif m.sticker:
+                await bot.send_sticker(user_id, m.sticker.file_id)
+            else:
+                await bot.send_message(user_id, caption)
+
         else:
-            # просто текст
             text = " ".join(command.args.split(maxsplit=1)[1:]) if len(command.args.split()) > 1 else ""
             await bot.send_message(user_id, f"Сообщение от куратора:\n\n{text}")
 
-        await m.reply("Отправлено пользователю.")
+        await m.reply("✅ Сообщение отправлено пользователю.")
     except Exception as e:
-        await m.reply(f"Не удалось отправить: {e}")
+        await m.reply(f"⚠️ Не удалось отправить: {e}")
 
 # ——— Прием контента в рамках заявки и пересылка в тему
 @dp.message()
