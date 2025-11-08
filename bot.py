@@ -11,8 +11,7 @@ from aiogram.filters import Command, CommandObject
 from aiogram.types import (
     InlineKeyboardMarkup, InlineKeyboardButton,
     Message, CallbackQuery, BotCommand,
-    BotCommandScopeDefault, BotCommandScopeAllPrivateChats,
-    BotCommandScopeAllChatAdministrators, BotCommandScopeChatAdministrators
+    BotCommandScopeAllPrivateChats, BotCommandScopeAllChatAdministrators
 )
 
 # ==== HTML parse_mode: совместимость с разными aiogram ====
@@ -102,7 +101,7 @@ ROLE_INFO = {
 Незаметный мастер теней, собирающий рассыпанное полотно страниц в единое целое.
 Он знает, где прячутся лучшие сканы, какие святилища не искажают качество, и на сколько пикселей нужно сдвинуть слой, чтобы стыки исчезли, словно их никогда и не было.
  """,
-        "guide": "https://docs.google.com/document/d/1d-JOzkwз2MyQ1K-8LLeзIRka6ceg7mxw6eПnrUvMkho/edit?usp=sharing",
+        "guide": "https://docs.google.com/document/d/1d-JOzkwз2MyQ1K-8LLeзIRka6ceg7mxw6ePnrUvMkho/edit?usp=sharing",
         "test_folder": "https://drive.google.com/drive/folders/1Ape7qsiKkm6uhFeKcYvsh1XOuYAa93f8?usp=sharing"
     },
     "curator": {
@@ -141,7 +140,7 @@ PORT = int(os.getenv("PORT", "10000"))
 STATE: dict[int, dict] = {}
 USER_LAST_ROLE: dict[int, str] = {}
 
-# Бан-лист: в памяти
+# Бан-лист: можно инициировать через BANNED_IDS="1,2,3"
 BANNED_IDS = {int(x) for x in os.getenv("BANNED_IDS", "").split(",") if x.strip().isdigit()}
 
 _LAST_START_AT: dict[int, float] = {}
@@ -160,6 +159,12 @@ else:
     bot = Bot(BOT_TOKEN, parse_mode=ParseMode.HTML)
 
 dp = Dispatcher()
+
+# ============ SMALL UTILITIES ============
+
+async def send_plain(chat_id: int, text: str):
+    # сообщенька без HTML, чтобы угловые скобки не рвали парсер
+    await bot.send_message(chat_id, text, parse_mode=None, disable_web_page_preview=True)
 
 # ============ KEYBOARDS ============
 
@@ -373,35 +378,18 @@ async def cancel(m: Message):
     st = STATE.setdefault(m.from_user.id, {"flow": None, "role": None, "deadline": None,
                                             "msg_id": None, "chat_id": None, "active": False})
     st.update({"flow": None, "role": None, "active": False})
-    await m.answer(
+    await send_plain(
+        m.chat.id,
         "Ты больше не желаешь быть частью стаи? Окей, мы закрыли твою заявку и кураторы больше не увидят твои сообщения. "
         "Чтобы снова иметь возможность подать заявку и общаться в чате, используй /start"
     )
 
-@dp.message(Command("help"))
-async def help_cmd(m: Message):
-    if m.chat.type == "private":
-        await m.answer(
-            "<b>Команды:</b>\n"
-            "/start — начать работу и подать заявку\n"
-            "/cancel — закрыть заявку и отключить пересылку\n"
-        )
-    elif m.chat.type in ("group", "supergroup"):
-        if is_admin(m.from_user.id):
-            await m.answer(
-                "<b>Админ-команды:</b>\n"
-                "/pm &lt;id&gt; [текст] — написать пользователю (можно с медиа)\n"
-                "/ban &lt;id&gt; — забанить пользователя в боте\n"
-                "/unban &lt;id&gt; — разбанить пользователя\n"
-                "/topicid — показать ID текущей темы\n"
-            )
-
 @dp.message(Command("topicid"))
 async def topic_id(m: Message):
     if getattr(m, "is_topic_message", False):
-        await m.answer(f"ID этой темы: {m.message_thread_id}")
+        await send_plain(m.chat.id, f"ID этой темы: {m.message_thread_id}")
     else:
-        await m.answer("Отправьте команду /topicid внутри нужной темы (вкладки) группы.")
+        await send_plain(m.chat.id, "Отправьте команду /topicid внутри нужной темы (вкладки) группы.")
 
 # ---- Админ-команды: бан / разбан ----
 
@@ -414,12 +402,12 @@ async def admin_ban(m: Message, command: CommandObject):
 
     args = (command.args or "").split()
     if not args:
-        await m.reply("Использование: /ban <user_id>")
+        await send_plain(m.chat.id, "Использование: /ban ID_пользователя\nНапример: /ban 123456789")
         return
     try:
         user_id = int(args[0])
     except ValueError:
-        await m.reply("Айди должен быть числом: /ban 123456789")
+        await send_plain(m.chat.id, "Айди должен быть числом: /ban 123456789")
         return
 
     BANNED_IDS.add(user_id)
@@ -427,13 +415,13 @@ async def admin_ban(m: Message, command: CommandObject):
                                      "msg_id": None, "chat_id": None, "active": False})
     st["active"] = False
     try:
-        await bot.send_message(
+        await send_plain(
             user_id,
             "Ты слишком болтлив, молодой лис. Нам пришлось отобрать у тебя возможность общаться и отправлять анкеты."
         )
     except Exception:
         pass
-    await m.reply(f"✅ Забанен id {user_id}. Пересылка его сообщений отключена.")
+    await send_plain(m.chat.id, f"✅ Забанен id {user_id}. Пересылка его сообщений отключена.")
 
 @dp.message(Command("unban"))
 async def admin_unban(m: Message, command: CommandObject):
@@ -444,26 +432,26 @@ async def admin_unban(m: Message, command: CommandObject):
 
     args = (command.args or "").split()
     if not args:
-        await m.reply("Использование: /unban <user_id>")
+        await send_plain(m.chat.id, "Использование: /unban ID_пользователя\nНапример: /unban 123456789")
         return
     try:
         user_id = int(args[0])
     except ValueError:
-        await m.reply("Айди должен быть числом: /unban 123456789")
+        await send_plain(m.chat.id, "Айди должен быть числом: /unban 123456789")
         return
 
     if user_id in BANNED_IDS:
         BANNED_IDS.discard(user_id)
         try:
-            await bot.send_message(
+            await send_plain(
                 user_id,
                 "Связь со стаей восстановлена. Набери /start, чтобы снова подать заявку и общаться."
             )
         except Exception:
             pass
-        await m.reply(f"✅ Разбанен id {user_id}. Может снова общаться после /start.")
+        await send_plain(m.chat.id, f"✅ Разбанен id {user_id}. Может снова общаться после /start.")
     else:
-        await m.reply("Этого лиса и так никто не держал в клетке. Он не в бане.")
+        await send_plain(m.chat.id, "Этого лиса и так никто не держал в клетке. Он не в бане.")
 
 # ---- Кнопки и экраны ----
 
@@ -511,10 +499,10 @@ async def on_apply(c: CallbackQuery):
     await render_screen(
         c.from_user.id,
         c.message.chat.id,
-        """Выбери направление,
-в котором раскроется
-твой талант под пред-
-водительством кицунэ.""",
+        """ㅤВыбери направление,ㅤ
+ㅤ      в котором раскроетсяㅤ
+ㅤ      твой талант под пред-ㅤ
+ㅤ      водительством кицунэ.ㅤ""",
         reply_markup=apply_roles_keyboard()
     )
     await c.answer()
@@ -550,17 +538,6 @@ async def on_back_menu(c: CallbackQuery):
     )
     await c.answer()
 
-@dp.callback_query(F.data == "back:vacancies")
-async def on_back_vacancies(c: CallbackQuery):
-    if _cb_too_fast_for_key(c.from_user.id, c.data):
-        await c.answer("Притормози, лисёнок...")
-        return
-    st = STATE.setdefault(c.from_user.id, {"flow": None, "role": None, "deadline": None,
-                                            "msg_id": None, "chat_id": None, "active": False})
-    st.update({"flow": "vacancies", "role": None})
-    await render_screen(c.from_user.id, c.message.chat.id, "Специальности:", reply_markup=vacancies_keyboard())
-    await c.answer()
-
 @dp.callback_query(F.data == "back:applyroles")
 async def on_back_applyroles(c: CallbackQuery):
     if _cb_too_fast_for_key(c.from_user.id, c.data):
@@ -572,10 +549,10 @@ async def on_back_applyroles(c: CallbackQuery):
     await render_screen(
         c.from_user.id,
         c.message.chat.id,
-        """Выбери направление,
-в котором раскроется
-твой талант под пред-
-водительством кицунэ.""",
+        """ㅤВыбери направление,ㅤ
+ㅤ      в котором раскроетсяㅤ
+ㅤ      твой талант под пред-ㅤ
+ㅤ      водительством кицунэ.ㅤ""",
         reply_markup=apply_roles_keyboard()
     )
     await c.answer()
@@ -658,13 +635,13 @@ async def admin_pm(m: Message, command: CommandObject):
 
     args = (command.args or "").split(maxsplit=1)
     if not args:
-        await m.reply("Использование: /pm <user_id> [текст или медиа]")
+        await send_plain(m.chat.id, "Использование: /pm ID [текст]. Пример: /pm 123456789 Привет")
         return
 
     try:
         user_id = int(args[0])
     except ValueError:
-        await m.reply("Неверный формат. Пример: /pm 12345678 Привет или фото.")
+        await send_plain(m.chat.id, "Айди должен быть числом. Пример: /pm 123456789 Привет")
         return
 
     has_media = any([m.photo, m.document, m.video, m.animation, m.voice, m.audio, m.sticker])
@@ -681,33 +658,33 @@ async def admin_pm(m: Message, command: CommandObject):
                 caption += "\n\n" + clean_caption
 
             if m.photo:
-                await bot.send_photo(user_id, m.photo[-1].file_id, caption=caption)
+                await bot.send_photo(user_id, m.photo[-1].file_id, caption=caption, parse_mode=None)
             elif m.document:
-                await bot.send_document(user_id, m.document.file_id, caption=caption)
+                await bot.send_document(user_id, m.document.file_id, caption=caption, parse_mode=None)
             elif m.video:
-                await bot.send_video(user_id, m.video.file_id, caption=caption)
+                await bot.send_video(user_id, m.video.file_id, caption=caption, parse_mode=None)
             elif m.animation:
-                await bot.send_animation(user_id, m.animation.file_id, caption=caption)
+                await bot.send_animation(user_id, m.animation.file_id, caption=caption, parse_mode=None)
             elif m.audio:
-                await bot.send_audio(user_id, m.audio.file_id, caption=caption)
+                await bot.send_audio(user_id, m.audio.file_id, caption=caption, parse_mode=None)
             elif m.voice:
                 await bot.send_voice(user_id, m.voice.file_id, caption=caption)
             elif m.sticker:
                 await bot.send_sticker(user_id, m.sticker.file_id)
                 if clean_caption or len(args) > 1:
-                    await bot.send_message(user_id, caption)
+                    await send_plain(user_id, caption)
             else:
-                await bot.send_message(user_id, caption)
+                await send_plain(user_id, caption)
         else:
             text_body = args[1].strip() if len(args) > 1 else ""
             msg = "Сообщение от куратора:"
             if text_body:
                 msg += "\n\n" + text_body
-            await bot.send_message(user_id, msg)
+            await send_plain(user_id, msg)
 
-        await m.reply("✅ Сообщение отправлено пользователю.")
+        await send_plain(m.chat.id, "✅ Сообщение отправлено пользователю.")
     except Exception as e:
-        await m.reply(f"⚠️ Не удалось отправить: {e}")
+        await send_plain(m.chat.id, f"⚠️ Не удалось отправить: {e}")
 
 # ---- ЛС от юзеров: сбор и пересылка ----
 
@@ -717,9 +694,9 @@ async def collect_and_forward(m: Message):
         return
     if m.text and m.text.startswith("/"):
         return
-
     if m.from_user.id in BANNED_IDS:
         return
+
     st = STATE.get(m.from_user.id) or {}
     if not st.get("active", False):
         return
@@ -742,48 +719,53 @@ async def collect_and_forward(m: Message):
     except Exception as e:
         print("Forward error:", e)
         try:
-            await bot.send_message(m.chat.id, "Не получилось доставить сообщение кураторам. Попробуйте ещё раз позже.")
+            await send_plain(m.chat.id, "Не получилось доставить сообщение кураторам. Попробуйте ещё раз позже.")
         except Exception:
             pass
 
 # ============ COMMAND SUGGESTIONS (slash menu) ============
 
 async def setup_commands():
-    # 1) Сначала очищаем всё, чтобы клиент подтянул свежак
-    try:
-        await bot.delete_my_commands(scope=BotCommandScopeDefault())
-        await bot.delete_my_commands(scope=BotCommandScopeAllPrivateChats())
-        await bot.delete_my_commands(scope=BotCommandScopeAllChatAdministrators())
-        if GROUP_ID:
-            await bot.delete_my_commands(scope=BotCommandScopeChatAdministrators(chat_id=GROUP_ID))
-    except Exception:
-        pass
-
-    # 2) Пользовательские команды (дефолт и ЛС) — это увеличивает шанс появления кнопки со слэшем в ЛС
+    # Пользовательские команды в ЛС
     user_cmds = [
         BotCommand(command="start", description="Начать работу и подать заявку"),
         BotCommand(command="cancel", description="Закрыть заявку и отключить пересылку"),
-        BotCommand(command="help", description="Подсказки по командам"),
+        BotCommand(command="help", description="Что умеет бот (для кандидата)"),
     ]
-    await bot.set_my_commands(user_cmds, scope=BotCommandScopeDefault())
     await bot.set_my_commands(user_cmds, scope=BotCommandScopeAllPrivateChats())
 
-    # 3) Админские команды для админов всех групп
+    # Админские команды (в группах, где есть админы)
     admin_cmds = [
-        BotCommand(command="pm", description="Написать пользователю: /pm <id> [текст] или с медиа"),
-        BotCommand(command="ban", description="Забанить пользователя: /ban <id>"),
-        BotCommand(command="unban", description="Разбанить пользователя: /unban <id>"),
+        BotCommand(command="help", description="Краткая справка по управлению"),
+        BotCommand(command="pm", description="Написать пользователю: /pm ID [текст]"),
+        BotCommand(command="ban", description="Забанить пользователя: /ban ID"),
+        BotCommand(command="unban", description="Разбанить пользователя: /unban ID"),
         BotCommand(command="topicid", description="Показать ID текущей темы"),
-        BotCommand(command="help", description="Подсказки по админ-командам"),
     ]
     await bot.set_my_commands(admin_cmds, scope=BotCommandScopeAllChatAdministrators())
 
-    # 4) И отдельно пробиваем конкретный групповой чат, если указан
-    if GROUP_ID:
-        try:
-            await bot.set_my_commands(admin_cmds, scope=BotCommandScopeChatAdministrators(chat_id=GROUP_ID))
-        except Exception:
-            pass
+# ======== HELP COMMANDS ========
+
+@dp.message(Command("help"))
+async def help_cmd(m: Message):
+    if m.chat.type in ("supergroup", "group") and is_admin(m.from_user.id):
+        text = (
+            "Админ-команды:\n"
+            "/pm ID [текст] – отправить ЛС пользователю\n"
+            "/ban ID – запретить писать боту и отключить пересылку\n"
+            "/unban ID – снять запрет\n"
+            "/topicid – показать ID темы для привязки вакансий\n"
+            "\nПодсказка: Telegram сам добавляет @бот в группах. Отключить это невозможно, это поведение клиента."
+        )
+        await send_plain(m.chat.id, text)
+    else:
+        text = (
+            "Команды кандидата:\n"
+            "/start – начать подачу заявки\n"
+            "/cancel – закрыть заявку и отключить пересылку\n"
+            "/help – эта справка"
+        )
+        await send_plain(m.chat.id, text)
 
 # ============ FAKE HTTP FOR RENDER ============
 
