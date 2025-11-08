@@ -26,6 +26,20 @@ except Exception:  # noqa
     from aiogram.types import ParseMode  # type: ignore
     from aiogram.types import ChatType  # type: ignore
 
+# Для альбомов
+try:
+    from aiogram.types import (
+        InputMediaPhoto, InputMediaVideo, InputMediaDocument,
+        InputMediaAudio, InputMediaAnimation
+    )
+except Exception:
+    # старые версии могут не иметь Animation
+    from aiogram.types import (
+        InputMediaPhoto, InputMediaVideo, InputMediaDocument,
+        InputMediaAudio
+    )
+    InputMediaAnimation = None  # type: ignore
+
 # ============ CONFIG ============
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -155,6 +169,15 @@ REPLY_MAP: dict[tuple[int, int], int] = {}
 def is_admin(user_id: int) -> bool:
     return not ADMIN_IDS or user_id in ADMIN_IDS
 
+# ============ NEW: MEDIA GROUP BUFFERING ============
+
+# m.media_group_id -> list of items
+_MEDIA_BUFFERS: dict[str, list[Message]] = {}
+# debounce tasks
+_MEDIA_TASKS: dict[str, asyncio.Task] = {}
+# чтобы прислать "доставлено" один раз
+_ACKED_MEDIA_GROUPS: set[str] = set()
+
 # ============ BOT CORE ============
 
 if DefaultBotProperties:
@@ -205,6 +228,36 @@ def _cb_too_fast_for_key(user_id: int, data: str) -> bool:
         return True
     _LAST_CB_KEY_AT[(user_id, key)] = now
     return False
+
+def _compose_header(m: Message, role_key: str | None) -> tuple[str, str]:
+    role_title_text = role_title(role_key) if role_key else "—"
+    username = f"@{m.from_user.username}" if m.from_user.username else "—"
+    hashtag_line = f"\n#{m.from_user.username}" if m.from_user.username else ""
+    header = f"📥 Сообщение от {username} (id {m.from_user.id}) | Роль: {role_title_text}{hashtag_line}"
+    return header, hashtag_line
+
+def _extract_user_text(m: Message) -> str:
+    # Текст сообщения или подпись к медиа
+    txt = (m.text or m.caption or "").strip()
+    return txt
+
+def _media_to_input(item: Message, caption: str | None = None):
+    # Превращаем сообщение в InputMedia* для альбома. Возвращаем (input_media, supported_bool)
+    try:
+        if item.photo:
+            fid = item.photo[-1].file_id
+            return InputMediaPhoto(media=fid, caption=caption), True
+        if item.video:
+            return InputMediaVideo(media=item.video.file_id, caption=caption), True
+        if item.document:
+            return InputMediaDocument(media=item.document.file_id, caption=caption), True
+        if getattr(item, "audio", None):
+            return InputMediaAudio(media=item.audio.file_id, caption=caption), True
+        if getattr(item, "animation", None) and InputMediaAnimation:
+            return InputMediaAnimation(media=item.animation.file_id, caption=caption), True
+    except Exception:
+        pass
+    return None, False  # voice, sticker и прочее
 
 # ============ KEYBOARDS ============
 
@@ -286,7 +339,6 @@ async def schedule_deadline_notify(user_id: int, role_key: str, started_at: date
         pass
 
     try:
-        # добавляем строку с хештегом, если есть username
         hashtag = f"\n#{user.username}" if username else ""
         text = (
             "⏳ <b>Выдано тестовое задание</b>\n"
@@ -730,7 +782,6 @@ async def admin_pm(m: Message, command: CommandObject):
             if tail_text:
                 msg += "\n\n" + tail_text
             else:
-                # если нет текста в команде, но есть reply — просто скопируем ответ как есть
                 if m.reply_to_message and not m.text.strip().startswith("/pm"):
                     await m.copy_to(user_id)
                     await send_plain(m.chat.id, "✅ Сообщение отправлено пользователю.")
@@ -752,7 +803,6 @@ async def admin_reply_by_swipe(m: Message):
     user_id = REPLY_MAP.get(key)
 
     if not user_id:
-        # резерв: вытащим id из текста «шапки»
         try:
             txt = m.reply_to_message.text or m.reply_to_message.caption or ""
             mobj = re.search(r"id\s+(\d{6,})", txt)
@@ -771,7 +821,107 @@ async def admin_reply_by_swipe(m: Message):
     except Exception as e:
         await send_plain(m.chat.id, f"⚠️ Не удалось отправить: {e}")
 
-# ---- ЛС от юзеров: сбор и пересылка ----
+# ---- ВСПОМОГАТЕЛЬНО: отправка связки в группу ----
+
+async def _send_bundled_to_group(
+    header_text: str,
+    user_text: str,
+    thread_id: int | None,
+    items: list[Message]
+):
+    """
+    items — список сообщений пользователя, которые надо склеить.
+    Возвращает message_id первой «реплайной» точки.
+    """
+    # Формируем альбом из поддерживаемых медиа, не более 10
+    media: list = []
+    unsupported: list[Message] = []
+
+    # В первую позицию положим первый media-элемент, чтобы повесить общий caption
+    # Если в items нет ни одного media, просто отправим один текстовый пост.
+    for i, msg in enumerate(items):
+        im, ok = _media_to_input(msg, caption=None)
+        if ok:
+            media.append((msg, im))
+        else:
+            unsupported.append(msg)
+
+    first_sent_message: Message | None = None
+
+    # Если есть медиа для альбома
+    if media:
+        # Ограничим 10 элементов
+        pack = media[:10]
+        # К первому элементу добавим общий caption: header + пустая строка + текст
+        common_caption = header_text
+        if user_text:
+            common_caption += f"\n{user_text}"
+        # Проставим caption только первому элементу
+        inputs = []
+        for j, (_m, im) in enumerate(pack):
+            # В некоторых версиях aiogram нельзя менять .caption через setattr, пересоздадим
+            cls = type(im)
+            kwargs = {"media": im.media}
+            if j == 0:
+                kwargs["caption"] = common_caption
+                kwargs["parse_mode"] = None
+            inputs.append(cls(**kwargs))  # type: ignore
+
+        if GROUP_ID:
+            if thread_id:
+                sent = await bot.send_media_group(GROUP_ID, media=inputs, message_thread_id=thread_id)
+            else:
+                sent = await bot.send_media_group(GROUP_ID, media=inputs)
+            # Первый элемент альбома становится реплай-узлом
+            first_sent_message = sent[0]
+
+    # Для неподдерживаемых (voice, sticker и т.п.) — отправим их reply к первому узлу
+    if unsupported:
+        for msg in unsupported:
+            try:
+                if GROUP_ID:
+                    if msg.voice:
+                        sent2 = await bot.send_voice(
+                            GROUP_ID, msg.voice.file_id,
+                            caption=None,
+                            reply_to_message_id=first_sent_message.message_id if first_sent_message else None,
+                            message_thread_id=thread_id if thread_id else None
+                        )
+                        if not first_sent_message:
+                            first_sent_message = sent2
+                    elif msg.sticker:
+                        sent2 = await bot.send_sticker(
+                            GROUP_ID, msg.sticker.file_id,
+                            reply_to_message_id=first_sent_message.message_id if first_sent_message else None,
+                            message_thread_id=thread_id if thread_id else None
+                        )
+                        if not first_sent_message:
+                            first_sent_message = sent2
+                    else:
+                        # на всякий случай копия
+                        sent2 = await msg.copy_to(
+                            GROUP_ID,
+                            reply_to_message_id=first_sent_message.message_id if first_sent_message else None,
+                            message_thread_id=thread_id if thread_id else None
+                        )
+                        if not first_sent_message:
+                            first_sent_message = sent2
+            except Exception as e:
+                print("Unsupported media forward error:", e)
+
+    # Если не было медиа вообще — отправим один текстовый пост с хедером и текстом
+    if not media and not unsupported:
+        if GROUP_ID:
+            if thread_id:
+                first_sent_message = await bot.send_message(GROUP_ID, f"{header_text}\n{user_text}".strip(),
+                                                            message_thread_id=thread_id, parse_mode=None)
+            else:
+                first_sent_message = await bot.send_message(GROUP_ID, f"{header_text}\n{user_text}".strip(),
+                                                            parse_mode=None)
+
+    return first_sent_message
+
+# ---- ЛС от юзеров: сбор и пересылка (СКЛЕЙКА) ----
 
 @dp.message()
 async def collect_and_forward(m: Message):
@@ -786,37 +936,76 @@ async def collect_and_forward(m: Message):
     if not st.get("active", False):
         return
 
+    # Вычисляем роль и тему
     role_key = st.get("role") or USER_LAST_ROLE.get(m.from_user.id)
-    role_title_text = role_title(role_key) if role_key else "—"
     thread_id = ROLE_TOPICS.get(role_key) if role_key else None
 
-    username = f"@{m.from_user.username}" if m.from_user.username else "—"
-    hashtag_line = f"\n#{m.from_user.username}" if m.from_user.username else ""
-    header = f"📥 Сообщение от {username} (id {m.from_user.id}) | Роль: {role_title_text}{hashtag_line}"
+    header_text, _ = _compose_header(m, role_key)
+    user_text = _extract_user_text(m)
 
-    delivered = False
+    # Если это альбом — буферизуем и через дебаунс шлём одним батчем
+    if m.media_group_id:
+        gid = m.media_group_id
+        _MEDIA_BUFFERS.setdefault(gid, []).append(m)
+
+        # Планируем отправку через небольшой таймаут, чтобы собрать все элементы
+        async def _flush_group(group_id: str):
+            await asyncio.sleep(0.8)  # маленький дебаунс
+            items = _MEDIA_BUFFERS.pop(group_id, [])
+            if not items:
+                return
+
+            # Берём общие поля из первого сообщения альбома
+            first = items[0]
+            st2 = STATE.get(first.from_user.id) or {}
+            role_key2 = st2.get("role") or USER_LAST_ROLE.get(first.from_user.id)
+            thread_id2 = ROLE_TOPICS.get(role_key2) if role_key2 else None
+            header2, _ = _compose_header(first, role_key2)
+            # Текст возьмём из первого с текстом/caption, иначе пусто
+            utext = ""
+            for it in items:
+                t = _extract_user_text(it)
+                if t:
+                    utext = t
+                    break
+
+            sent_head = await _send_bundled_to_group(header2, utext, thread_id2, items)
+
+            # Помечаем точку для ответа
+            if sent_head:
+                remember_reply_target(sent_head, first.from_user.id)
+
+            # Один раз подтверждаем доставку пользователю
+            if group_id not in _ACKED_MEDIA_GROUPS:
+                try:
+                    await send_plain(first.chat.id, "Сообщение доставлено кураторам.")
+                except Exception:
+                    pass
+                _ACKED_MEDIA_GROUPS.add(group_id)
+
+        # если уже есть таск — забьём; если нет, создадим
+        if gid not in _MEDIA_TASKS or _MEDIA_TASKS[gid].done():
+            _MEDIA_TASKS[gid] = asyncio.create_task(_flush_group(gid))
+        return
+
+    # НЕ альбом: одиночное сообщение. Склеиваем в одно.
+    items: list[Message] = []
+    has_media = any([m.photo, m.video, m.document, getattr(m, "audio", None), getattr(m, "animation", None)])
+    if has_media:
+        items.append(m)
+
+    sent_anchor = await _send_bundled_to_group(header_text, user_text if not has_media else user_text, thread_id, items)
+
+    # Если это чистый текст, _send_bundled_to_group сам отправил единый пост
+    # Если это медиа, туда же прилетел caption-хедер.
+
+    # Запоминаем точку для ответов
+    if sent_anchor:
+        remember_reply_target(sent_anchor, m.from_user.id)
+
+    # Единоразовая квитанция в ответ на сообщение
     try:
-        if GROUP_ID:
-            header_msg = None
-            if thread_id:
-                header_msg = await bot.send_message(GROUP_ID, header, message_thread_id=thread_id)
-                copied = await m.copy_to(GROUP_ID, message_thread_id=thread_id)
-            else:
-                header_msg = await bot.send_message(GROUP_ID, header)
-                copied = await m.copy_to(GROUP_ID)
-
-            remember_reply_target(header_msg, m.from_user.id)
-            remember_reply_target(copied, m.from_user.id)
-
-            delivered = True
-    except Exception as e:
-        print("Forward error:", e)
-
-    try:
-        if delivered:
-            await send_plain(m.chat.id, "Сообщение доставлено кураторам.")
-        else:
-            await send_plain(m.chat.id, "Не получилось доставить сообщение кураторам. Попробуйте ещё раз позже.")
+        await send_plain(m.chat.id, "Сообщение доставлено кураторам.")
     except Exception:
         pass
 
@@ -825,19 +1014,16 @@ async def collect_and_forward(m: Message):
 async def setup_commands():
     # Пользовательские команды в ЛС
     user_cmds = [
-        BotCommand(command="start", description="Начать работу и подать заявку"),
-        BotCommand(command="cancel", description="Закрыть заявку и отключить пересылку"),
-        BotCommand(command="help", description="Что умеет бот (для кандидата)"),
+        BotCommand(command="start", description="Начать работу, подать заявку и пообщаться с кураторами"),
+        BotCommand(command="cancel", description="Закрыть заявку и отключить общение с кураторами"),
     ]
     await bot.set_my_commands(user_cmds, scope=BotCommandScopeAllPrivateChats())
 
     # Админские команды (в группах, где есть админы)
     admin_cmds = [
-        BotCommand(command="help", description="Краткая справка по управлению"),
-        BotCommand(command="pm", description="Написать пользователю: /pm ID [текст]"),
+        BotCommand(command="pm", description="Написать пользователю: /pm ID [текст] или ответить прямо на сообщение"),
         BotCommand(command="ban", description="Забанить пользователя: /ban ID"),
         BotCommand(command="unban", description="Разбанить пользователя: /unban ID"),
-        BotCommand(command="topicid", description="Показать ID текущей темы"),
     ]
     await bot.set_my_commands(admin_cmds, scope=BotCommandScopeAllChatAdministrators())
 
