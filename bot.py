@@ -921,7 +921,8 @@ async def collect_and_forward(m: Message):
                 _ACKED_MEDIA_GROUPS.add(group_id)
 
         if gid not in _MEDIA_TASKS or _MEDIA_TASKS[gid].done():
-            _MEDIA_TASKS[g id] = asyncio.create_task(_flush_group(gid))
+            _MEDIA_TASKS[gid] = asyncio.create_task(_flush_group(gid))
+
         return
 
     # Не альбом
