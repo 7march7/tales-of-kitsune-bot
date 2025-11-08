@@ -111,7 +111,6 @@ ROLE_INFO = {
 Он всегда знает, кто где увяз: у кого полыхают дедлайны, у кого застрял перевод на «я сделаю вечером», а у кого внезапно исчез интернет или совесть.
  """,
         "guide": "https://docs.google.com/document/d/1TVFM-oX-e7mwlxEnSI0hKSIzezruDHj1EHCuVLYK1KY/edit?usp=sharing",
-        # тест-папки у куратора нет — и не надо
     },
     "beta": {
         "title": "Бета-ридер",
@@ -137,11 +136,9 @@ PORT = int(os.getenv("PORT", "10000"))
 
 # ============ BOT STATE / ACCESS CONTROL ============
 
-# STATE[user_id] = { flow, role, deadline, msg_id, chat_id, active }
 STATE: dict[int, dict] = {}
 USER_LAST_ROLE: dict[int, str] = {}
 
-# Бан-лист: можно инициировать через BANNED_IDS="1,2,3"
 BANNED_IDS = {int(x) for x in os.getenv("BANNED_IDS", "").split(",") if x.strip().isdigit()}
 
 # Индексация пересланных сообщений для «свайп-ответа»
@@ -155,8 +152,6 @@ _USER_LOCKS: dict[int, asyncio.Lock] = {}
 def is_admin(user_id: int) -> bool:
     return not ADMIN_IDS or user_id in ADMIN_IDS
 
-# ============ BOT CORE ============
-
 if DefaultBotProperties:
     bot = Bot(BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 else:
@@ -164,7 +159,7 @@ else:
 
 dp = Dispatcher()
 
-# ============ SMALL UTILITIES ============
+# ===== utils
 
 async def send_plain(chat_id: int, text: str):
     await bot.send_message(chat_id, text, parse_mode=None, disable_web_page_preview=True)
@@ -173,7 +168,7 @@ def user_is_active(user_id: int) -> bool:
     st = STATE.get(user_id) or {}
     return bool(st.get("active")) and user_id not in BANNED_IDS
 
-# ============ KEYBOARDS ============
+# ===== keyboards
 
 def main_menu():
     return InlineKeyboardMarkup(inline_keyboard=[
@@ -238,7 +233,7 @@ def start_test_keyboard(role_key: str):
         [InlineKeyboardButton(text="« Назад", callback_data="back:applyroles")]
     ])
 
-# ============ HELPERS ============
+# ===== helpers
 
 def role_title(key: str) -> str:
     return ROLE_INFO.get(key, {}).get("title", "—")
@@ -308,15 +303,7 @@ async def schedule_deadline_notify(user_id: int, role_key: str, started_at: date
         except Exception as e:
             print("Notify user failed:", e)
 
-# --- один «экран» на пользователя ---
-async def render_screen(
-    user_id: int,
-    chat_id: int,
-    text: str,
-    *,
-    reply_markup=None,
-    parse_mode: str | None = ParseMode.HTML
-):
+async def render_screen(user_id: int, chat_id: int, text: str, *, reply_markup=None, parse_mode: str | None = ParseMode.HTML):
     lock = _USER_LOCKS.setdefault(user_id, asyncio.Lock())
     async with lock:
         st = STATE.setdefault(user_id, {"flow": None, "role": None, "deadline": None,
@@ -335,11 +322,8 @@ async def render_screen(
         if msg_id:
             try:
                 await bot.edit_message_text(
-                    text=text,
-                    chat_id=chat_id,
-                    message_id=msg_id,
-                    reply_markup=reply_markup,
-                    parse_mode=parse_mode
+                    text=text, chat_id=chat_id, message_id=msg_id,
+                    reply_markup=reply_markup, parse_mode=parse_mode
                 )
                 st["chat_id"] = chat_id
                 return
@@ -347,16 +331,11 @@ async def render_screen(
                 print("Edit failed, fallback to send:", e)
                 st["msg_id"] = None
 
-        sent = await bot.send_message(
-            chat_id,
-            text,
-            reply_markup=reply_markup,
-            parse_mode=parse_mode
-        )
+        sent = await bot.send_message(chat_id, text, reply_markup=reply_markup, parse_mode=parse_mode)
         st["msg_id"] = sent.message_id
         st["chat_id"] = chat_id
 
-# ============ HANDLERS ============
+# ===== HANDLERS
 
 @dp.message(Command("start"))
 async def cmd_start(m: Message):
@@ -385,7 +364,6 @@ async def cancel(m: Message):
     st = STATE.setdefault(m.from_user.id, {"flow": None, "role": None, "deadline": None,
                                             "msg_id": None, "chat_id": None, "active": False})
     st.update({"flow": None, "role": None, "active": False})
-    # удаляем текущее окно с кнопками, чтобы по ним нельзя было тыкать визуально
     try:
         if st.get("msg_id") and st.get("chat_id"):
             await bot.delete_message(st["chat_id"], st["msg_id"])
@@ -467,12 +445,10 @@ async def admin_unban(m: Message, command: CommandObject):
     else:
         await send_plain(m.chat.id, "Этого лиса и так никто не держал в клетке. Он не в бане.")
 
-# ---- Кнопки и экраны ----
-# Гейт: любые нажатия игнорим, если пользователь не активен или забанен
+# ---- Кнопки: гейт
 
 def _guard_callbacks(c: CallbackQuery) -> bool:
     if not user_is_active(c.from_user.id):
-        # вежливо пикаем и не даём ничего открыть
         asyncio.create_task(c.answer("Сначала /start, потом кнопочки."))
         return False
     return True
@@ -502,9 +478,7 @@ async def on_about(c: CallbackQuery):
     )
 
     await render_screen(
-        c.from_user.id,
-        c.message.chat.id,
-        about_html,
+        c.from_user.id, c.message.chat.id, about_html,
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="« Назад", callback_data="back:menu"),
              InlineKeyboardButton(text="Подать заявку", callback_data="apply")]
@@ -524,8 +498,7 @@ async def on_apply(c: CallbackQuery):
                                             "msg_id": None, "chat_id": None, "active": False})
     st.update({"flow": "apply", "role": None})
     await render_screen(
-        c.from_user.id,
-        c.message.chat.id,
+        c.from_user.id, c.message.chat.id,
         """ㅤВыбери направление,ㅤ
 ㅤв котором раскроетсяㅤ
 ㅤтвой талант под пред-ㅤ
@@ -583,8 +556,7 @@ async def on_back_applyroles(c: CallbackQuery):
                                             "msg_id": None, "chat_id": None, "active": False})
     st.update({"flow": "apply", "role": None})
     await render_screen(
-        c.from_user.id,
-        c.message.chat.id,
+        c.from_user.id, c.message.chat.id,
         """ㅤВыбери направление,ㅤ
 ㅤв котором раскроетсяㅤ
 ㅤтвой талант под пред-ㅤ
@@ -678,8 +650,7 @@ async def start_test(c: CallbackQuery):
     text = "\n".join(lines)
 
     await render_screen(
-        c.from_user.id, c.message.chat.id,
-        text,
+        c.from_user.id, c.message.chat.id, text,
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="« Назад", callback_data="back:applyroles")]
         ])
@@ -692,13 +663,11 @@ async def start_test(c: CallbackQuery):
 USERNAME_RE = re.compile(r"^@?([A-Za-z0-9_]{5,})$")
 
 async def _extract_user_id_from_replied(msg: Message) -> int | None:
-    """Попытаться вытащить user_id из сообщения, на которое отвечаем (хедер/копия)."""
     if not msg:
         return None
     key = (msg.chat.id, msg.message_id)
     if key in FORWARD_INDEX:
         return FORWARD_INDEX[key]
-    # Последний шанс: попробовать прочитать 'id NNN...' из текста хедера
     txt = (msg.text or msg.caption or "")
     m2 = re.search(r"\bid\s+(\d{5,})\b", txt)
     if m2:
@@ -709,16 +678,8 @@ async def _extract_user_id_from_replied(msg: Message) -> int | None:
     return None
 
 async def resolve_pm_target_and_text(args_line: str, replied: Message | None):
-    """
-    Возвращает (user_id, text_for_user).
-    Понимает:
-      - числовой id
-      - @username
-      - если это ответ на сообщение бота в админчате — берём адресата из индекса
-    """
     args_line = (args_line or "").strip()
 
-    # Если ответ на сообщение — пытаемся извлечь id оттуда
     uid_from_reply = await _extract_user_id_from_replied(replied)
     if uid_from_reply:
         return uid_from_reply, args_line
@@ -730,11 +691,9 @@ async def resolve_pm_target_and_text(args_line: str, replied: Message | None):
     first = parts[0]
     rest = parts[1] if len(parts) > 1 else ""
 
-    # Числовой id
     if first.isdigit():
         return int(first), rest
 
-    # @username
     m = USERNAME_RE.match(first)
     if m:
         uname = m.group(1)
@@ -768,10 +727,7 @@ async def admin_pm(m: Message, command: CommandObject):
             if rest:
                 caption = f"{rest}\n\n{caption}" if caption else rest
             prefix = "Сообщение от куратора:"
-            if caption:
-                caption = f"{prefix}\n\n{caption}"
-            else:
-                caption = prefix
+            caption = f"{prefix}\n\n{caption}" if caption else prefix
 
             if m.photo:
                 await bot.send_photo(target_id, m.photo[-1].file_id, caption=caption, parse_mode=None)
@@ -823,10 +779,7 @@ async def admin_quick_reply(m: Message):
 
         if has_media:
             caption = m.caption or ""
-            if caption.strip():
-                caption = f"{prefix}\n\n{caption}"
-            else:
-                caption = prefix
+            caption = f"{prefix}\n\n{caption}" if caption.strip() else prefix
 
             if m.photo:
                 await bot.send_photo(target_id, m.photo[-1].file_id, caption=caption, parse_mode=None)
@@ -847,16 +800,14 @@ async def admin_quick_reply(m: Message):
             else:
                 await send_plain(target_id, prefix)
         else:
-            body = (m.text or "").strip()
-            if not body:
-                body = " "
+            body = (m.text or "").strip() or " "
             await send_plain(target_id, f"{prefix}\n\n{body}")
 
         await send_plain(m.chat.id, "✅ Отправлено в ЛС кандидату.")
     except Exception as e:
         await send_plain(m.chat.id, f"⚠️ Не удалось отправить: {e}")
 
-# ---- ЛС от юзеров: сбор и пересылка ----
+# ---- ЛС от юзеров: сбор и пересылка + корректные статусы ----
 
 @dp.message()
 async def collect_and_forward(m: Message):
@@ -878,22 +829,35 @@ async def collect_and_forward(m: Message):
     username = f"@{m.from_user.username}" if m.from_user.username else "—"
     header = f"📥 Сообщение от {username} (id {m.from_user.id}) | Роль: {role_title_text}"
 
+    if not GROUP_ID:
+        await send_plain(m.chat.id, "Не настроена доставка к кураторам. Свяжитесь с администрацией.")
+        return
+
+    delivered = False
     try:
-        if GROUP_ID:
-            if thread_id:
-                header_msg = await bot.send_message(GROUP_ID, header, message_thread_id=thread_id)
-                FORWARD_INDEX[(header_msg.chat.id, header_msg.message_id)] = m.from_user.id
+        if thread_id:
+            header_msg = await bot.send_message(GROUP_ID, header, message_thread_id=thread_id)
+            FORWARD_INDEX[(header_msg.chat.id, header_msg.message_id)] = m.from_user.id
 
-                copied = await m.copy_to(GROUP_ID, message_thread_id=thread_id)
-                FORWARD_INDEX[(copied.chat.id, copied.message_id)] = m.from_user.id
-            else:
-                header_msg = await bot.send_message(GROUP_ID, header)
-                FORWARD_INDEX[(header_msg.chat.id, header_msg.message_id)] = m.from_user.id
+            copied = await m.copy_to(GROUP_ID, message_thread_id=thread_id)
+            FORWARD_INDEX[(copied.chat.id, copied.message_id)] = m.from_user.id
+        else:
+            header_msg = await bot.send_message(GROUP_ID, header)
+            FORWARD_INDEX[(header_msg.chat.id, header_msg.message_id)] = m.from_user.id
 
-                copied = await m.copy_to(GROUP_ID)
-                FORWARD_INDEX[(copied.chat.id, copied.message_id)] = m.from_user.id
+            copied = await m.copy_to(GROUP_ID)
+            FORWARD_INDEX[(copied.chat.id, copied.message_id)] = m.from_user.id
+
+        delivered = True
     except Exception as e:
         print("Forward error:", e)
+
+    if delivered:
+        try:
+            await send_plain(m.chat.id, "Сообщение доставлено кураторам.")
+        except Exception:
+            pass
+    else:
         try:
             await send_plain(m.chat.id, "Не получилось доставить сообщение кураторам. Попробуйте ещё раз позже.")
         except Exception:
@@ -902,7 +866,6 @@ async def collect_and_forward(m: Message):
 # ============ COMMAND SUGGESTIONS (slash menu) ============
 
 async def setup_commands():
-    # Пользовательские команды в ЛС
     user_cmds = [
         BotCommand(command="start", description="Начать работу и подать заявку"),
         BotCommand(command="cancel", description="Закрыть заявку и отключить пересылку"),
@@ -910,7 +873,6 @@ async def setup_commands():
     ]
     await bot.set_my_commands(user_cmds, scope=BotCommandScopeAllPrivateChats())
 
-    # Админские команды (в группах, где есть админы)
     admin_cmds = [
         BotCommand(command="help", description="Краткая справка по управлению"),
         BotCommand(command="pm", description="Написать пользователю: /pm ID|@user [текст]"),
