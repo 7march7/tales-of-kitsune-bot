@@ -15,16 +15,13 @@ from aiogram.types import (
 
 # ==== HTML parse_mode: совместимость с разными aiogram ====
 try:
-    # aiogram v3.x
-    from aiogram.client.default import DefaultBotProperties  # может отсутствовать, если среда подсунула v2
+    from aiogram.client.default import DefaultBotProperties  # v3.x
 except Exception:  # noqa
     DefaultBotProperties = None
 
 try:
-    # aiogram v3.x
-    from aiogram.enums import ParseMode
+    from aiogram.enums import ParseMode  # v3.x
 except Exception:  # noqa
-    # на старых версиях класс жил в types
     from aiogram.types import ParseMode  # type: ignore
 
 # ============ CONFIG ============
@@ -129,7 +126,6 @@ PORT = int(os.getenv("PORT", "10000"))
 
 # ============ BOT CORE ============
 
-# HTML включён глобально: v3 через DefaultBotProperties, fallback — старый parse_mode
 if DefaultBotProperties:
     bot = Bot(BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 else:
@@ -400,10 +396,14 @@ async def on_apply(c: CallbackQuery):
         return
     st = STATE.setdefault(c.from_user.id, {})
     st.update({"flow": "apply", "role": None})
-    await render_screen(c.from_user.id, c.message.chat.id,
-          """ㅤВыбери направление, в ко-ㅤ
+    await render_screen(
+        c.from_user.id,
+        c.message.chat.id,
+        """ㅤВыбери направление, в ко-ㅤ
         ㅤтором раскроется твой талантㅤ
-        ㅤпод предводительством кицунэ.ㅤ""", reply_markup=apply_roles_keyboard())
+        ㅤпод предводительством кицунэ.ㅤ""",
+        reply_markup=apply_roles_keyboard()
+    )
     await c.answer()
 
 @dp.callback_query(F.data == "vacancies")
@@ -453,8 +453,9 @@ async def on_back_applyroles(c: CallbackQuery):
     st = STATE.setdefault(c.from_user.id, {})
     st.update({"flow": "apply", "role": None})
     await render_screen(
-        c.from_user.id, c.message.chat.id,
-        ㅤ"""ㅤВыбери направление, в ко-ㅤ
+        c.from_user.id,
+        c.message.chat.id,
+        """ㅤВыбери направление, в ко-ㅤ
         ㅤтором раскроется твой талантㅤ
         ㅤпод предводительством кицунэ.ㅤ""",
         reply_markup=apply_roles_keyboard()
