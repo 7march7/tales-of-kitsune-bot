@@ -57,67 +57,84 @@ ROLE_INFO = {
 Он изучает древние письмена, полные странных знаков и смыслов, сокрытых от простых смертных, и извлекает из них истории, понятные человеческому сознанию. 
 Живёт на кофе, словарях и милости духов-кицунэ, что шепчут ему подсказки между строчек.
 
+
 <b>Доступные языки:</b>
 • Английский
 • Испанский
 • Корейский
 • Индонезийский
 
-<i>Современные чары машинного перевода и нейросетей можно звать на помощь, но не позволяйте им творить вместо вас.</i>""",
+
+<i>Современные чары машинного перевода и нейросетей можно звать на помощь, но не позволяйте им творить вместо вас.</i>
+ """,
         "guide": "https://docs.google.com/document/d/1fKu8n-1nLpgLHV2-XNPM-HeBaCFlpX23lbAdXDllB-A/edit?usp=sharing",
+        
         "test_folder": "https://drive.google.com/drive/folders/1jferUktlsctxsRWYmHiqU7gHr6JE6eyJ?usp=sharing"
     },
     "editor": {
         "title": "Редактор",
         "desc": """
 Хранитель чистоты слова и проводник смысла.
-Он вычищает следы человеческой небрежности, полирует текст до блеска и собирает рассыпавшиеся мысли в чёткий узор фраз.""",
+Он вычищает следы человеческой небрежности, полирует текст до блеска и собирает рассыпавшиеся мысли в чёткий узор фраз.
+ """,
         "guide": "https://docs.google.com/document/d/1yBjmbplGJ2owy-0a9IrRO9UyskW9ljLAqZctCoOJal0/edit?usp=sharing",
+        
         "test_folder": "https://drive.google.com/drive/folders/1rsCbmU3mhJQClZkW8VyToHZkYAFIxIlB?usp=sharing"
     },
     "cleaner": {
         "title": "Клинер/Ретушёр",
         "desc": """
-Тихий мученик с ластиком в руке, стирающий чужие буквы с древних страниц. Он возвращает рисунку первозданную чистоту, жертвуя зрением, осанкой и, порой, остатками душевного равновесия.""",
+Тихий мученик с ластиком в руке, стирающий чужие буквы с древних страниц. Он возвращает рисунку первозданную чистоту, жертвуя зрением, осанкой и, порой, остатками душевного равновесия.
+ """,
         "guide": "https://docs.google.com/document/d/1Ncg8KpvUa6KferVPdP0XLJ3DILegs1a2d3DhMJTarPA/edit?usp=sharing",
+        
         "test_folder": "https://drive.google.com/drive/folders/11q4UZeid9ewMze6M9fVMNABdPxeWiZ64?usp=sharing"
     },
     "typesetter": {
         "title": "Тайпер",
         "desc": """
 Заклинатель текста, что вплетает слова в очищенные страницы.
-Он подбирает шрифты, ловит ритм строк и старается приручить капризные баблы…""",
+Он подбирает шрифты, ловит ритм строк и старается приручить капризные баблы…
+ """,
         "guide": "https://docs.google.com/document/d/1Xd7Nn0UPS9372f5otgyv8FfО0hGfyNLP/edit?usp=sharing&ouid=104155753409319228630&rtpof=true&sd=true",
+        
         "test_folder": "https://drive.google.com/drive/folders/1VVrAiriLncotiKkII5_xbAsIyystDtXq?usp=sharing"
     },
     "gluer": {
         "title": "Склейщик",
         "desc": """
 Незаметный мастер теней, собирающий рассыпанное полотно страниц в единое целое.
-Он знает, где прячутся лучшие сканы, какие святилища не искажают качество, и на сколько пикселей нужно сдвинуть слой, чтобы стыки исчезли, словно их никогда и не было.""",
+Он знает, где прячутся лучшие сканы, какие святилища не искажают качество, и на сколько пикселей нужно сдвинуть слой, чтобы стыки исчезли, словно их никогда и не было.
+ """,
         "guide": "https://docs.google.com/document/d/1d-JOzkwz2MyQ1K-8LLezIRka6ceg7mxw6ePnrUvMkho/edit?usp=sharing",
+        
         "test_folder": "https://drive.google.com/drive/folders/1Ape7qsiKkm6uhFeKcYvsh1XOuYAa93f8?usp=sharing"
     },
     "curator": {
         "title": "Куратор",
         "desc": """
 Мозг команды и её личный громоотвод.
-Он всегда знает, кто где увяз: у кого полыхают дедлайны, у кого застрял перевод на «я сделаю вечером», а у кого внезапно исчез интернет или совесть.""",
+Он всегда знает, кто где увяз: у кого полыхают дедлайны, у кого застрял перевод на «я сделаю вечером», а у кого внезапно исчез интернет или совесть.
+ """,
         "guide": "https://docs.google.com/document/d/1TVFM-oX-e7mwlxEnSI0hKSIzezruDHj1EHCuVLYK1KY/edit?usp=sharing",
     },
     "beta": {
         "title": "Бета-ридер",
         "desc": """
-Читает главы до релиза, высматривая каждую шероховатость, пока текст ещё не покинул стены лисьего логова.""",
+Читает главы до релиза, высматривая каждую шероховатость, пока текст ещё не покинул стены лисьего логова.
+ """,
         "guide": "https://docs.google.com/document/d/1naGul_KQhkV4bMUBaGzHR5KMwNK90j-gNgr5jrIjxWA/edit?usp=sharing",
+        
         "test_folder": "https://drive.google.com/drive/folders/1jHYnfP7HGuJZFaM_VOJ1UWe-VLrTvLdw?usp=sharing"
     },
     "typecheck": {
         "title": "Тайп-чекер",
         "desc": """
 Хранитель порядка в мире шрифтов и баблов.
-Он зорко следит за выравниванием, отступами, переносами и толщиной обводки, чтобы каждая страница дышала гармонией и аккуратностью.""",
+Он зорко следит за выравниванием, отступами, переносами и толщиной обводки, чтобы каждая страница дышала гармонией и аккуратностью.
+ """,
         "guide": "https://docs.google.com/document/d/1--JVkuwGl1u5UUpGKnzaETmIg6EJJX2u/edit?usp=sharing&ouid=104155753409319228630&rtpof=true&sd=true",
+        
         "test_folder": "https://drive.google.com/drive/folders/1O1Dw5yWrsR27ZXVbQDMP0q4GDBV5F-Un?usp=sharing"
     },
 }
@@ -400,9 +417,10 @@ async def on_apply(c: CallbackQuery):
     await render_screen(
         c.from_user.id,
         c.message.chat.id,
-        """ㅤㅤㅤㅤВыбери направление, в ко-ㅤㅤㅤ
-        ㅤтором раскроется твой талантㅤㅤ
-        ㅤпод предводительством кицунэ.ㅤㅤ""",
+        """ Выбери направление,ㅤㅤ
+          в котором раскроетсяㅤㅤ
+          твой талант под пред-ㅤㅤ
+          водительством кицунэ.ㅤㅤ""",
         reply_markup=apply_roles_keyboard()
     )
     await c.answer()
@@ -456,9 +474,10 @@ async def on_back_applyroles(c: CallbackQuery):
     await render_screen(
         c.from_user.id,
         c.message.chat.id,
-        """ㅤㅤㅤㅤВыбери направление, в ко-ㅤㅤㅤ
-        ㅤтором раскроется твой талантㅤㅤ
-        ㅤпод предводительством кицунэ.ㅤㅤ""",
+        """ Выбери направление,ㅤㅤ
+          в котором раскроетсяㅤㅤ
+          твой талант под пред-ㅤㅤ
+          водительством кицунэ.ㅤㅤ""",
         reply_markup=apply_roles_keyboard()
     )
     await c.answer()
