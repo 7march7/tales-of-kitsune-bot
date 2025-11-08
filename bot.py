@@ -26,19 +26,6 @@ except Exception:  # noqa
     from aiogram.types import ParseMode  # type: ignore
     from aiogram.types import ChatType  # type: ignore
 
-# Для альбомов
-try:
-    from aiogram.types import (
-        InputMediaPhoto, InputMediaVideo, InputMediaDocument,
-        InputMediaAudio, InputMediaAnimation
-    )
-except Exception:
-    from aiogram.types import (
-        InputMediaPhoto, InputMediaVideo, InputMediaDocument,
-        InputMediaAudio
-    )
-    InputMediaAnimation = None  # type: ignore
-
 # ============ CONFIG ============
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -65,7 +52,84 @@ EXTRA_GUIDE_URL = (
 )
 
 ROLE_INFO = {
-    # ... (оставлено без изменений)
+    "translator": {
+        "title": "Переводчик",
+        "desc": """
+Существо редкое, почти мистическое.
+Он изучает древние письмена, полные странных знаков и смыслов, сокрытых от простых смертных, и извлекает из них истории, понятные человеческому сознанию. 
+Живёт на кофе, словарях и милости духов-кицунэ, что шепчут ему подсказки между строчек.
+
+<b>Доступные языки:</b>
+• Английский
+• Испанский
+• Корейский
+• Индонезийский
+
+<i>Современные чары машинного перевода и нейросетей можно звать на помощь, но не позволяйте им творить вместо вас.</i>
+ """,
+        "guide": "https://docs.google.com/document/d/1fKu8n-1nLpgLHV2-XNPM-HeBaCFlpX23lbAdXDllB-A/edit?usp=sharing",
+        "test_folder": "https://drive.google.com/drive/folders/1jferUktlsctxsRWYmHiqU7gHr6JE6eyJ?usp=sharing"
+    },
+    "editor": {
+        "title": "Редактор",
+        "desc": """
+Хранитель чистоты слова и проводник смысла.
+Он вычищает следы человеческой небрежности, полирует текст до блеска и собирает рассыпавшиеся мысли в чёткий узор фраз.
+ """,
+        "guide": "https://docs.google.com/document/d/1yBjmbplGJ2owy-0a9IrRO9UyskW9ljLAqZctCoOJal0/edit?usp=sharing",
+        "test_folder": "https://drive.google.com/drive/folders/1rsCbmU3mhJQClZkW8VyToHZkYAFIxIlB?usp=sharing"
+    },
+    "cleaner": {
+        "title": "Клинер/Ретушёр",
+        "desc": """
+Тихий мученик с ластиком в руке, стирающий чужие буквы с древних страниц. Он возвращает рисунку первозданную чистоту, жертвуя зрением, осанкой и, порой, остатками душевного равновесия.
+ """,
+        "guide": "https://docs.google.com/document/d/1Ncg8KpvUa6KferVPdP0XLJ3DILegs1a2d3DhMJTarPA/edit?usp=sharing",
+        "test_folder": "https://drive.google.com/drive/folders/11q4UZeid9ewMze6M9fVMNABdPxeWiZ64?usp=sharing"
+    },
+    "typesetter": {
+        "title": "Тайпер",
+        "desc": """
+Заклинатель текста, что вплетает слова в очищенные страницы.
+Он подбирает шрифты, ловит ритм строк и старается приручить капризные баблы…
+ """,
+        "guide": "https://docs.google.com/document/d/1Xd7Nн0UPS9372f5otgyv8FfО0hGfyNLP/edit?usp=sharing&ouid=104155753409319228630&rtpof=true&sd=true",
+        "test_folder": "https://drive.google.com/drive/folders/1VVrAiriLncotiKkII5_xbAsIyystDtXq?usp=sharing"
+    },
+    "gluer": {
+        "title": "Склейщик",
+        "desc": """
+Незаметный мастер теней, собирающий рассыпанное полотно страниц в единое целое.
+Он знает, где прячутся лучшие сканы, какие святилища не искажают качество, и на сколько пикселей нужно сдвинуть слой, чтобы стыки исчезли, словно их никогда и не было.
+ """,
+        "guide": "https://docs.google.com/document/d/1d-JOzkwз2MyQ1K-8LLeзIRka6ceг7mxw6ePnrUvMkho/edit?usp=sharing",
+        "test_folder": "https://drive.google.com/drive/folders/1Ape7qsiKkm6uhFeKcYvsh1XOuYAa93f8?usp=sharing"
+    },
+    "curator": {
+        "title": "Куратор",
+        "desc": """
+Мозг команды и её личный громоотвод.
+Он всегда знает, кто где увяз: у кого полыхают дедлайны, у кого застрял перевод на «я сделаю вечером», а у кого внезапно исчез интернет или совесть.
+ """,
+        "guide": "https://docs.google.com/document/d/1TVFM-oX-e7mwlxEnSI0hKSIzezruDHj1EHCuVLYK1KY/edit?usp=sharing",
+    },
+    "beta": {
+        "title": "Бета-ридер",
+        "desc": """
+Читает главы до релиза, высматривая каждую шероховатость, пока текст ещё не покинул стены лисьего логова.
+ """,
+        "guide": "https://docs.google.com/document/d/1naGul_KQhkV4bMUBaGзHR5KMwNK90j-gNgr5jrIjxWA/edit?usp=sharing",
+        "test_folder": "https://drive.google.com/drive/folders/1jHYnfP7HGuJZFaM_VOJ1UWe-VLrTvLdw?usp=sharing"
+    },
+    "typecheck": {
+        "title": "Тайп-чекер",
+        "desc": """
+Хранитель порядка в мире шрифтов и баблов.
+Он зорко следит за выравниванием, отступами, переносами и толщиной обводки, чтобы каждая страница дышала гармонией и аккуратностью.
+ """,
+        "guide": "https://docs.google.com/document/d/1--JVkuwGl1u5UUpGKnzaETmIg6EJJX2u/edit?usp=sharing&ouid=104155753409319228630&rtpof=true&sd=true",
+        "test_folder": "https://drive.google.com/drive/folders/1O1Dw5yWrsR27ZXVbQDMP0q4GDBV5F-Un?usp=sharing"
+    },
 }
 
 TEST_DEADLINE_DAYS = int(os.getenv("TEST_DEADLINE_DAYS", "3"))
@@ -73,9 +137,13 @@ PORT = int(os.getenv("PORT", "10000"))
 
 # ============ BOT STATE / ACCESS CONTROL ============
 
+# STATE[user_id] = { flow, role, deadline, msg_id, chat_id, active }
 STATE: dict[int, dict] = {}
 USER_LAST_ROLE: dict[int, str] = {}
+
+# Бан-лист: можно инициировать через BANNED_IDS="1,2,3"
 BANNED_IDS = {int(x) for x in os.getenv("BANNED_IDS", "").split(",") if x.strip().isdigit()}
+
 _LAST_START_AT: dict[int, float] = {}
 _LAST_CB_KEY_AT: dict[tuple[int, str], float] = {}
 _CB_DEBOUNCE_SEC = 2.5
@@ -87,17 +155,7 @@ REPLY_MAP: dict[tuple[int, int], int] = {}
 def is_admin(user_id: int) -> bool:
     return not ADMIN_IDS or user_id in ADMIN_IDS
 
-# ============ NEW: MEDIA GROUP BUFFERING (кандидаты -> кураторы) ============
-
-_MEDIA_BUFFERS: dict[str, list[Message]] = {}
-_MEDIA_TASKS: dict[str, asyncio.Task] = {}
-_ACKED_MEDIA_GROUPS: set[str] = set()
-
-# ============ NEW: OUTGOING BUNDLE (админы -> кандидаты) ============
-
-# ключ: (target_user_id, media_group_id) -> список сообщений админа
-_OUT_BUFFERS: dict[tuple[int, str], list[Message]] = {}
-_OUT_TASKS: dict[tuple[int, str], asyncio.Task] = {}
+# ============ BOT CORE ============
 
 if DefaultBotProperties:
     bot = Bot(BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
@@ -148,34 +206,7 @@ def _cb_too_fast_for_key(user_id: int, data: str) -> bool:
     _LAST_CB_KEY_AT[(user_id, key)] = now
     return False
 
-def _compose_header(m: Message, role_key: str | None) -> tuple[str, str]:
-    role_title_text = role_title(role_key) if role_key else "—"
-    username = f"@{m.from_user.username}" if m.from_user.username else "—"
-    hashtag_line = f"\n#{m.from_user.username}" if m.from_user.username else ""
-    header = f"📥 Сообщение от {username} (id {m.from_user.id}) | Роль: {role_title_text}{hashtag_line}"
-    return header, hashtag_line
-
-def _extract_user_text(m: Message) -> str:
-    return (m.text or m.caption or "").strip()
-
-def _media_to_input(item: Message, caption: str | None = None):
-    try:
-        if item.photo:
-            fid = item.photo[-1].file_id
-            return InputMediaPhoto(media=fid, caption=caption), True
-        if item.video:
-            return InputMediaVideo(media=item.video.file_id, caption=caption), True
-        if item.document:
-            return InputMediaDocument(media=item.document.file_id, caption=caption), True
-        if getattr(item, "audio", None):
-            return InputMediaAudio(media=item.audio.file_id, caption=caption), True
-        if getattr(item, "animation", None) and InputMediaAnimation:
-            return InputMediaAnimation(media=item.animation.file_id, caption=caption), True
-    except Exception:
-        pass
-    return None, False
-
-# ============ KEYBOARDS (без изменений) ============
+# ============ KEYBOARDS ============
 
 def main_menu():
     return InlineKeyboardMarkup(inline_keyboard=[
@@ -240,215 +271,398 @@ def start_test_keyboard(role_key: str):
         [InlineKeyboardButton(text="« Назад", callback_data="back:applyroles")]
     ])
 
-# ============ DEADLINE NOTIFY / render_screen (без изменений) ============
+# ============ DEADLINE NOTIFY ============
 
-# ... schedule_deadline_notify и render_screen здесь без изменений ...
+async def schedule_deadline_notify(user_id: int, role_key: str, started_at: datetime):
+    deadline = started_at + timedelta(days=TEST_DEADLINE_DAYS)
+    thread_id = ROLE_TOPICS.get(role_key) or None
+    title = role_title(role_key)
 
-# ============ HANDLERS (start/cancel/topicid/ban/unban/about/apply/...) ============
-
-# ... эти хендлеры оставлены как в твоем файле ...
-
-# ============ ВСПОМОГАТЕЛЬНО: отправка связки в группу (кандидаты -> кураторы) ============
-
-async def _send_bundled_to_group(header_text: str, user_text: str, thread_id: int | None, items: list[Message]):
-    media: list = []
-    unsupported: list[Message] = []
-
-    for msg in items:
-        im, ok = _media_to_input(msg, caption=None)
-        if ok:
-            media.append((msg, im))
-        else:
-            unsupported.append(msg)
-
-    first_sent_message: Message | None = None
-
-    if media:
-        pack = media[:10]
-        common_caption = header_text + (f"\n{user_text}" if user_text else "")
-        inputs = []
-        for j, (_m, im) in enumerate(pack):
-            cls = type(im)
-            kwargs = {"media": im.media}
-            if j == 0:
-                kwargs["caption"] = common_caption
-                kwargs["parse_mode"] = None
-            inputs.append(cls(**kwargs))  # type: ignore
-
-        if GROUP_ID:
-            if thread_id:
-                sent = await bot.send_media_group(GROUP_ID, media=inputs, message_thread_id=thread_id)
-            else:
-                sent = await bot.send_media_group(GROUP_ID, media=inputs)
-            first_sent_message = sent[0]
-
-    if unsupported:
-        for msg in unsupported:
-            try:
-                if GROUP_ID:
-                    if msg.voice:
-                        sent2 = await bot.send_voice(
-                            GROUP_ID, msg.voice.file_id,
-                            caption=None,
-                            reply_to_message_id=first_sent_message.message_id if first_sent_message else None,
-                            message_thread_id=thread_id if thread_id else None
-                        )
-                    elif msg.sticker:
-                        sent2 = await bot.send_sticker(
-                            GROUP_ID, msg.sticker.file_id,
-                            reply_to_message_id=first_sent_message.message_id if first_sent_message else None,
-                            message_thread_id=thread_id if thread_id else None
-                        )
-                    else:
-                        sent2 = await msg.copy_to(
-                            GROUP_ID,
-                            reply_to_message_id=first_sent_message.message_id if first_sent_message else None,
-                            message_thread_id=thread_id if thread_id else None
-                        )
-                    if not first_sent_message:
-                        first_sent_message = sent2
-            except Exception as e:
-                print("Unsupported media forward error:", e)
-
-    if not media and not unsupported:
-        if GROUP_ID:
-            if thread_id:
-                first_sent_message = await bot.send_message(
-                    GROUP_ID, f"{header_text}\n{user_text}".strip(),
-                    message_thread_id=thread_id, parse_mode=None
-                )
-            else:
-                first_sent_message = await bot.send_message(
-                    GROUP_ID, f"{header_text}\n{user_text}".strip(), parse_mode=None
-                )
-
-    return first_sent_message
-
-# ============ NEW: универсальная отправка бандла админа кандидату ============
-
-async def _send_admin_bundle_to_user(user_id: int, text: str, items: list[Message]):
-    """
-    Отправляет админу-кандидату единым альбомом до 10 вложений.
-    text — общий текст («Ответ куратора: …»). items — исходные сообщения админа.
-    Возвращает True/False по факту успеха.
-    """
-    media: list = []
-    unsupported: list[Message] = []
-
-    for msg in items:
-        im, ok = _media_to_input(msg, caption=None)
-        if ok:
-            media.append((msg, im))
-        else:
-            unsupported.append(msg)
-
-    anchor: Message | None = None
-
+    username = ""
     try:
-        if media:
-            pack = media[:10]
-            caption = text.strip() if text else "Ответ куратора:"
-            inputs = []
-            for i, (_m, im) in enumerate(pack):
-                cls = type(im)
-                kwargs = {"media": im.media}
-                if i == 0:
-                    kwargs["caption"] = caption
-                    kwargs["parse_mode"] = None
-                inputs.append(cls(**kwargs))  # type: ignore
-            sent = await bot.send_media_group(user_id, media=inputs)
-            anchor = sent[0]
-
-        if unsupported:
-            for msg in unsupported:
-                if msg.voice:
-                    s2 = await bot.send_voice(user_id, msg.voice.file_id, caption=None,
-                                              reply_to_message_id=anchor.message_id if anchor else None)
-                elif msg.sticker:
-                    s2 = await bot.send_sticker(user_id, msg.sticker.file_id,
-                                                reply_to_message_id=anchor.message_id if anchor else None)
-                else:
-                    s2 = await msg.copy_to(user_id, reply_to_message_id=anchor.message_id if anchor else None)
-                if not anchor:
-                    anchor = s2
-
-        if not media and not unsupported:
-            await send_plain(user_id, text or "Ответ куратора:")
-
-        return True
-    except Exception as e:
-        print("admin bundle failed:", e)
-        return False
-
-# ============ ЛС от юзеров: сбор и пересылка (склейка) ============
-
-@dp.message()
-async def collect_and_forward(m: Message):
-    if m.chat.type != "private":
-        return
-    if m.text and m.text.startswith("/"):
-        return
-    if m.from_user.id in BANNED_IDS:
-        return
-
-    st = STATE.get(m.from_user.id) or {}
-    if not st.get("active", False):
-        return
-
-    role_key = st.get("role") or USER_LAST_ROLE.get(m.from_user.id)
-    thread_id = ROLE_TOPICS.get(role_key) if role_key else None
-
-    header_text, _ = _compose_header(m, role_key)
-    user_text = _extract_user_text(m)
-
-    if m.media_group_id:
-        gid = m.media_group_id
-        _MEDIA_BUFFERS.setdefault(gid, []).append(m)
-
-        async def _flush_group(group_id: str):
-            await asyncio.sleep(0.8)
-            items = _MEDIA_BUFFERS.pop(group_id, [])
-            if not items:
-                return
-            first = items[0]
-            st2 = STATE.get(first.from_user.id) or {}
-            role_key2 = st2.get("role") or USER_LAST_ROLE.get(first.from_user.id)
-            thread_id2 = ROLE_TOPICS.get(role_key2) if role_key2 else None
-            header2, _ = _compose_header(first, role_key2)
-            utext = ""
-            for it in items:
-                t = _extract_user_text(it)
-                if t:
-                    utext = t
-                    break
-            sent_head = await _send_bundled_to_group(header2, utext, thread_id2, items)
-            if sent_head:
-                remember_reply_target(sent_head, first.from_user.id)
-            if group_id not in _ACKED_MEDIA_GROUPS:
-                try:
-                    await send_plain(first.chat.id, "Сообщение доставлено кураторам.")
-                except Exception:
-                    pass
-                _ACKED_MEDIA_GROUPS.add(group_id)
-
-        if gid not in _MEDIA_TASKS or _MEDIA_TASKS[gid].done():
-            _MEDIA_TASKS[gid] = asyncio.create_task(_flush_group(gid))
-        return
-
-    items: list[Message] = []
-    has_media = any([m.photo, m.video, m.document, getattr(m, "audio", None), getattr(m, "animation", None)])
-    if has_media:
-        items.append(m)
-
-    sent_anchor = await _send_bundled_to_group(header_text, user_text if not has_media else user_text, thread_id, items)
-    if sent_anchor:
-        remember_reply_target(sent_anchor, m.from_user.id)
-    try:
-        await send_plain(m.chat.id, "Сообщение доставлено кураторам.")
+        user = await bot.get_chat(user_id)
+        username = f" (@{user.username})" if user.username else ""
     except Exception:
         pass
 
-# ============ /pm: теперь с бандлингом альбомов админа ============
+    try:
+        # добавляем строку с хештегом, если есть username
+        hashtag = f"\n#{user.username}" if username else ""
+        text = (
+            "⏳ <b>Выдано тестовое задание</b>\n"
+            f"Роль: <b>{title}</b>\n"
+            f"Пользователь: id {user_id}{username}{hashtag}\n"
+            f"Дедлайн: {deadline.strftime('%Y-%m-%d %H:%M %Z') or deadline.isoformat()}"
+        )
+        if GROUP_ID:
+            if thread_id:
+                await bot.send_message(GROUP_ID, text, message_thread_id=thread_id)
+            else:
+                await bot.send_message(GROUP_ID, text)
+    except Exception as e:
+        print("Error posting assignment:", e)
+
+    now = datetime.now(timezone.utc)
+    delta = (deadline.replace(tzinfo=timezone.utc) - now).total_seconds()
+    if delta > 0:
+        await asyncio.sleep(delta)
+        try:
+            await bot.send_message(
+                user_id,
+                f"Напоминание: срок сдачи теста по роли «{title}» истёк. Если нужно продление, ответьте на это сообщение."
+            )
+        except Exception as e:
+            print("Notify user failed:", e)
+
+# --- один «экран» на пользователя ---
+async def render_screen(
+    user_id: int,
+    chat_id: int,
+    text: str,
+    *,
+    reply_markup=None,
+    parse_mode: str | None = ParseMode.HTML
+):
+    lock = _USER_LOCKS.setdefault(user_id, asyncio.Lock())
+    async with lock:
+        st = STATE.setdefault(user_id, {"flow": None, "role": None, "deadline": None,
+                                        "msg_id": None, "chat_id": None, "active": False})
+
+        old_chat_id = st.get("chat_id")
+        old_msg_id = st.get("msg_id")
+        if old_msg_id and old_chat_id and old_chat_id != chat_id:
+            try:
+                await bot.delete_message(old_chat_id, old_msg_id)
+            except Exception:
+                pass
+            st["msg_id"] = None
+
+        msg_id = st.get("msg_id")
+        if msg_id:
+            try:
+                await bot.edit_message_text(
+                    text=text,
+                    chat_id=chat_id,
+                    message_id=msg_id,
+                    reply_markup=reply_markup,
+                    parse_mode=parse_mode
+                )
+                st["chat_id"] = chat_id
+                return
+            except Exception as e:
+                print("Edit failed, fallback to send:", e)
+                st["msg_id"] = None
+
+        sent = await bot.send_message(
+            chat_id,
+            text,
+            reply_markup=reply_markup,
+            parse_mode=parse_mode
+        )
+        st["msg_id"] = sent.message_id
+        st["chat_id"] = chat_id
+
+# ============ HANDLERS ============
+
+@dp.message(Command("start"))
+async def cmd_start(m: Message):
+    now = monotonic()
+    last = _LAST_START_AT.get(m.from_user.id, 0.0)
+    if now - last < 1.5:
+        return
+    _LAST_START_AT[m.from_user.id] = now
+
+    st = STATE.setdefault(m.from_user.id, {"flow": None, "role": None, "deadline": None,
+                                            "msg_id": None, "chat_id": None, "active": False})
+    st.update({"flow": None, "role": None, "active": True})
+    await render_screen(
+        m.from_user.id, m.chat.id,
+        """ㅤㅤㅤ🐾『𝐓𝐚𝐥𝐞𝐬 𝐨𝐟 𝐊𝐢𝐭𝐬𝐮𝐧𝐞』 🐾
+        ㅤУзнай легенды логова иㅤ
+        правила его обитателей, аㅤ
+        затем оставь свою заявку,ㅤ
+        если готов присоединить-
+        ㅤся к стае.༄˖°.🍂.ೃ࿔*:･ㅤ""",
+        reply_markup=main_menu()
+    )
+
+@dp.message(Command("cancel"))
+async def cancel(m: Message):
+    st = STATE.setdefault(m.from_user.id, {"flow": None, "role": None, "deadline": None,
+                                            "msg_id": None, "chat_id": None, "active": False})
+    st.update({"flow": None, "role": None, "active": False})
+    await send_plain(
+        m.chat.id,
+        "Ты больше не желаешь быть частью стаи? Окей, мы закрыли твою заявку и кураторы больше не увидят твои сообщения. "
+        "Чтобы снова иметь возможность подать заявку и общаться в чате, используй /start"
+    )
+
+@dp.message(Command("topicid"))
+async def topic_id(m: Message):
+    if getattr(m, "is_topic_message", False):
+        await send_plain(m.chat.id, f"ID этой темы: {m.message_thread_id}")
+    else:
+        await send_plain(m.chat.id, "Отправьте команду /topicid внутри нужной темы (вкладки) группы.")
+
+# ---- Админ-команды: бан / разбан ----
+
+@dp.message(Command("ban"))
+async def admin_ban(m: Message, command: CommandObject):
+    if m.chat.type not in ("supergroup", "group"):
+        return
+    if not is_admin(m.from_user.id):
+        return
+
+    args = (command.args or "").split()
+    if not args:
+        await send_plain(m.chat.id, "Использование: /ban ID_пользователя\nНапример: /ban 123456789")
+        return
+    try:
+        user_id = int(args[0])
+    except ValueError:
+        await send_plain(m.chat.id, "Айди должен быть числом: /ban 123456789")
+        return
+
+    BANNED_IDS.add(user_id)
+    st = STATE.setdefault(user_id, {"flow": None, "role": None, "deadline": None,
+                                     "msg_id": None, "chat_id": None, "active": False})
+    st["active"] = False
+    try:
+        await send_plain(
+            user_id,
+            "Ты слишком болтлив, молодой лис. Нам пришлось отобрать у тебя возможность общаться и отправлять анкеты."
+        )
+    except Exception:
+        pass
+    await send_plain(m.chat.id, f"✅ Забанен id {user_id}. Пересылка его сообщений отключена.")
+
+@dp.message(Command("unban"))
+async def admin_unban(m: Message, command: CommandObject):
+    if m.chat.type not in ("supergroup", "group"):
+        return
+    if not is_admin(m.from_user.id):
+        return
+
+    args = (command.args or "").split()
+    if not args:
+        await send_plain(m.chat.id, "Использование: /unban ID_пользователя\nНапример: /unban 123456789")
+        return
+    try:
+        user_id = int(args[0])
+    except ValueError:
+        await send_plain(m.chat.id, "Айди должен быть числом: /unban 123456789")
+        return
+
+    if user_id in BANNED_IDS:
+        BANNED_IDS.discard(user_id)
+        try:
+            await send_plain(
+                user_id,
+                "Связь со стаей восстановлена. Набери /start, чтобы снова подать заявку и общаться."
+            )
+        except Exception:
+            pass
+        await send_plain(m.chat.id, f"✅ Разбанен id {user_id}. Может снова общаться после /start.")
+    else:
+        await send_plain(m.chat.id, "Этого лиса и так никто не держал в клетке. Он не в бане.")
+
+# ---- Кнопки и экраны ----
+
+@dp.callback_query(F.data == "about")
+async def on_about(c: CallbackQuery):
+    if _cb_too_fast_for_key(c.from_user.id, c.data):
+        await c.answer("Притормози, лисёнок...")
+        return
+
+    about_html = (
+        "<b>Tales of Kitsune</b> — команда, которая переводит манхвы с любовью к оригиналу и уважением к читателю.\n\n"
+        "<b>Работаем за спасибо.</b>\n"
+        "Наш проект некоммерческий: здесь нет зарплат, премий и прочих земных наград.\n"
+        "Мы трудимся ради удовольствия творить и ради тех, кто хочет читать эти истории свободно — так, как их задумали авторы.\n\n"
+        "<b>Берём кандидатов без опыта.</b>\n"
+        "Не умеешь чистить, вставлять текст или спорить со шрифтами — научим.\n"
+        "Умеешь — тем лучше, сбережём немного нервов и времени для сна.\n"
+        "Главное — желание делать хорошо. Остальное приходит с практикой, терпением и парой ночей в компании таинственного файла «финал_3_точно_последний.psd».\n\n"
+        "<b>Требования:</b>\n"
+        "• Пара свободных часов в неделю\n"
+        "• Ответственность и уважение к срокам\n"
+        "• Возраст от 16 лет\n"
+        "• Прохождение тестового задания"
+    )
+
+    await render_screen(
+        c.from_user.id,
+        c.message.chat.id,
+        about_html,
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="« Назад", callback_data="back:menu"),
+             InlineKeyboardButton(text="Подать заявку", callback_data="apply")]
+        ])
+    )
+    await c.answer()
+
+@dp.callback_query(F.data == "apply")
+async def on_apply(c: CallbackQuery):
+    if _cb_too_fast_for_key(c.from_user.id, c.data):
+        await c.answer("Притормози, лисёнок...")
+        return
+    st = STATE.setdefault(c.from_user.id, {"flow": None, "role": None, "deadline": None,
+                                            "msg_id": None, "chat_id": None, "active": False})
+    st.update({"flow": "apply", "role": None})
+    await render_screen(
+        c.from_user.id,
+        c.message.chat.id,
+        """        ㅤ        Выбери направление,ㅤ
+        ㅤв котором раскроетсяㅤ
+        ㅤтвой талант под пред-ㅤ
+        ㅤводительством кицунэ.ㅤ""",
+        reply_markup=apply_roles_keyboard()
+    )
+    await c.answer()
+
+@dp.callback_query(F.data == "vacancies")
+async def on_vacancies(c: CallbackQuery):
+    if _cb_too_fast_for_key(c.from_user.id, c.data):
+        await c.answer("Притормози, лисёнок...")
+        return
+    st = STATE.setdefault(c.from_user.id, {"flow": None, "role": None, "deadline": None,
+                                            "msg_id": None, "chat_id": None, "active": False})
+    st.update({"flow": "vacancies", "role": None})
+    await render_screen(c.from_user.id, c.message.chat.id, "Выбери специальность:", reply_markup=vacancies_keyboard())
+    await c.answer()
+
+@dp.callback_query(F.data == "back:menu")
+async def on_back_menu(c: CallbackQuery):
+    if _cb_too_fast_for_key(c.from_user.id, c.data):
+        await c.answer("Притормози, лисёнок...")
+        return
+    st = STATE.setdefault(c.from_user.id, {"flow": None, "role": None, "deadline": None,
+                                            "msg_id": None, "chat_id": None, "active": False})
+    st.update({"flow": None, "role": None})
+    await render_screen(
+        c.from_user.id, c.message.chat.id,
+        """ㅤㅤㅤ🐾『𝐓𝐚𝐥𝐞𝐬 𝐨𝐟 𝐊𝐢𝐭𝐬𝐮𝐧𝐞』 🐾
+        ㅤУзнай легенды логова иㅤ
+        правила его обитателей, аㅤ
+        затем оставь свою заявку,ㅤ
+        если готов присоединить-
+        ㅤся к стае.༄˖°.🍂.ೃ࿔*:･ㅤ""",
+        reply_markup=main_menu()
+    )
+    await c.answer()
+
+@dp.callback_query(F.data == "back:applyroles")
+async def on_back_applyroles(c: CallbackQuery):
+    if _cb_too_fast_for_key(c.from_user.id, c.data):
+        await c.answer("Притормози, лисёнок...")
+        return
+    st = STATE.setdefault(c.from_user.id, {"flow": None, "role": None, "deadline": None,
+                                            "msg_id": None, "chat_id": None, "active": False})
+    st.update({"flow": "apply", "role": None})
+    await render_screen(
+        c.from_user.id,
+        c.message.chat.id,
+        """        ㅤ        Выбери направление,ㅤ
+        ㅤв котором раскроетсяㅤ
+        ㅤтвой талант под пред-ㅤ
+        ㅤводительством кицунэ.ㅤ""",
+        reply_markup=apply_roles_keyboard()
+    )
+    await c.answer()
+
+@dp.callback_query(F.data.startswith("v:"))
+async def vacancy_show(c: CallbackQuery):
+    if _cb_too_fast_for_key(c.from_user.id, c.data):
+        await c.answer("Притормози, лисёнок...")
+        return
+    key = c.data.split(":", 1)[1]
+    st = STATE.setdefault(c.from_user.id, {"flow": None, "role": None, "deadline": None,
+                                            "msg_id": None, "chat_id": None, "active": False})
+    st["role"] = key
+    USER_LAST_ROLE[c.from_user.id] = key
+
+    await render_screen(
+        c.from_user.id, c.message.chat.id,
+        role_desc_block(key),
+        reply_markup=back_and_apply_small()
+    )
+    await c.answer()
+
+@dp.callback_query(F.data.startswith("a:"))
+async def apply_role_intro(c: CallbackQuery):
+    if _cb_too_fast_for_key(c.from_user.id, c.data):
+        await c.answer("Притормози, лисёнок...")
+        return
+    key = c.data.split(":", 1)[1]
+    st = STATE.setdefault(c.from_user.id, {"flow": None, "role": None, "deadline": None,
+                                            "msg_id": None, "chat_id": None, "active": False})
+    st["role"] = key
+    USER_LAST_ROLE[c.from_user.id] = key
+
+    await render_screen(
+        c.from_user.id, c.message.chat.id,
+        apply_info_block(key),
+        reply_markup=start_test_keyboard(key)
+    )
+    await c.answer()
+
+@dp.callback_query(F.data.startswith("starttest:"))
+async def start_test(c: CallbackQuery):
+    if _cb_too_fast_for_key(c.from_user.id, c.data):
+        await c.answer("Притормози, лисёнок...")
+        return
+
+    key = c.data.split(":", 1)[1]
+    info = ROLE_INFO.get(key, {})
+    folder = info.get("test_folder", "")
+    guide = info.get("guide", "")
+
+    st = STATE.setdefault(c.from_user.id, {"flow": None, "role": None, "deadline": None,
+                                            "msg_id": None, "chat_id": None, "active": False})
+    st["deadline"] = datetime.now(timezone.utc)
+    st["role"] = key
+    USER_LAST_ROLE[c.from_user.id] = key
+
+    title = role_title(key)
+
+    lines = [
+        f"<b>{title}</b>",
+        "Заполните анкету по форме ниже и прикрепите к ней тестовый файл "
+        "(тестовое задание для кураторов отсутствует):",
+        "1. Имя (при желании указать).",
+        "2. Ник (как к вам обращаться).",
+        "3. Наличие/отсутствие опыта (при желании указать). При подаче заявки на куратора указывать обязательно.",
+        "4. Количество свободного времени в неделю.",
+        "5. Дополнительные полезные навыки/знания (работа в приложениях, с нейросетями, знание EXCEL/Google docs и прочее).",
+        "6*. Укажите язык, с которого был выполнен перевод (пункт для переводчиков).",
+        "",
+    ]
+
+    if folder:
+        lines.append(f"<b>Папка с тестовым заданием:</b> {folder}")
+    else:
+        lines.append("<b>Папка с тестовым заданием:</b> отсутствует для этой роли.")
+
+    if guide:
+        lines.append(f"<b>Правила выполнения задания:</b> {guide}")
+
+    lines.append(f"<b>Методичка:</b> {EXTRA_GUIDE_URL}")
+    lines.append(f"<b>Дедлайн:</b> {TEST_DEADLINE_DAYS} дня.")
+
+    text = "\n".join(lines)
+
+    await render_screen(
+        c.from_user.id, c.message.chat.id,
+        text,
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="« Назад", callback_data="back:applyroles")]
+        ])
+    )
+
+    asyncio.create_task(schedule_deadline_notify(c.from_user.id, key, st["deadline"]))
+    await c.answer("Тест выдан")
+
+# ---- /pm для админов ----
 
 @dp.message(Command("pm"))
 async def admin_pm(m: Message, command: CommandObject):
@@ -463,6 +677,7 @@ async def admin_pm(m: Message, command: CommandObject):
         await send_plain(m.chat.id, "Использование: ответьте на сообщение кандидата ИЛИ /pm ID [текст]")
         return
 
+    # Пробуем взять user_id из reply, если есть
     replied_user_id = None
     if m.reply_to_message:
         replied_user_id = REPLY_MAP.get((m.chat.id, m.reply_to_message.message_id))
@@ -481,52 +696,52 @@ async def admin_pm(m: Message, command: CommandObject):
 
     has_media = any([m.photo, m.document, m.video, m.animation, m.voice, m.audio, m.sticker])
 
-    # общий текст ответа
-    raw_caption = m.caption or ""
-    clean_caption = re.sub(r"(?i)^/pm(\s+\d+)?\s*", "", raw_caption).strip()
-    base_text = "Ответ куратора:"
-    extra = (tail_text or clean_caption or "").strip()
-    if extra:
-        base_text += "\n\n" + extra
-
-    # Если это альбом — буферизуем и шлём пакетом
-    if m.media_group_id:
-        key = (user_id, m.media_group_id)
-        _OUT_BUFFERS.setdefault(key, []).append(m)
-
-        async def _flush_out(k):
-            await asyncio.sleep(0.8)
-            items = _OUT_BUFFERS.pop(k, [])
-            if not items:
-                return
-            # Найдём первый осмысленный текст, если base_text пустой
-            text = base_text
-            if ":\n\n" not in base_text:
-                for it in items:
-                    t = _extract_user_text(it)
-                    if t:
-                        text = "Ответ куратора:\n\n" + t
-                        break
-            ok = await _send_admin_bundle_to_user(k[0], text, items)
-            await send_plain(m.chat.id, "✅ Сообщение отправлено пользователю." if ok else "⚠️ Не удалось отправить пакет.")
-
-        if key not in _OUT_TASKS or _OUT_TASKS[key].done():
-            _OUT_TASKS[key] = asyncio.create_task(_flush_out(key))
-        return
-
-    # Не альбом
     try:
         if has_media:
-            ok = await _send_admin_bundle_to_user(user_id, base_text, [m])
-            await send_plain(m.chat.id, "✅ Сообщение отправлено пользователю." if ok else "⚠️ Не удалось отправить.")
+            raw_caption = m.caption or ""
+            clean_caption = re.sub(r"(?i)^/pm(\s+\d+)?\s*", "", raw_caption).strip()
+            if not clean_caption and tail_text:
+                clean_caption = tail_text
+
+            caption = "Ответ куратора:"
+            if clean_caption:
+                caption += "\n\n" + clean_caption
+
+            if m.photo:
+                await bot.send_photo(user_id, m.photo[-1].file_id, caption=caption, parse_mode=None)
+            elif m.document:
+                await bot.send_document(user_id, m.document.file_id, caption=caption, parse_mode=None)
+            elif m.video:
+                await bot.send_video(user_id, m.video.file_id, caption=caption, parse_mode=None)
+            elif m.animation:
+                await bot.send_animation(user_id, m.animation.file_id, caption=caption, parse_mode=None)
+            elif m.audio:
+                await bot.send_audio(user_id, m.audio.file_id, caption=caption, parse_mode=None)
+            elif m.voice:
+                await bot.send_voice(user_id, m.voice.file_id, caption=caption)
+            elif m.sticker:
+                await bot.send_sticker(user_id, m.sticker.file_id)
+                if clean_caption:
+                    await send_plain(user_id, caption)
+            else:
+                await send_plain(user_id, caption)
         else:
-            # чистый текст
-            await send_plain(user_id, base_text)
-            await send_plain(m.chat.id, "✅ Сообщение отправлено пользователю.")
+            msg = "Ответ куратора:"
+            if tail_text:
+                msg += "\n\n" + tail_text
+            else:
+                # если нет текста в команде, но есть reply — просто скопируем ответ как есть
+                if m.reply_to_message and not m.text.strip().startswith("/pm"):
+                    await m.copy_to(user_id)
+                    await send_plain(m.chat.id, "✅ Сообщение отправлено пользователю.")
+                    return
+            await send_plain(user_id, msg)
+
+        await send_plain(m.chat.id, "✅ Сообщение отправлено пользователю.")
     except Exception as e:
         await send_plain(m.chat.id, f"⚠️ Не удалось отправить: {e}")
 
-# ============ Свайп-ответ в группе: тоже бандлим, если альбом ============
+# ---- Свайп-ответ в группе ----
 
 @dp.message(F.chat.type.in_({ChatType.SUPERGROUP, ChatType.GROUP}) & F.reply_to_message)
 async def admin_reply_by_swipe(m: Message):
@@ -537,6 +752,7 @@ async def admin_reply_by_swipe(m: Message):
     user_id = REPLY_MAP.get(key)
 
     if not user_id:
+        # резерв: вытащим id из текста «шапки»
         try:
             txt = m.reply_to_message.text or m.reply_to_message.caption or ""
             mobj = re.search(r"id\s+(\d{6,})", txt)
@@ -549,46 +765,157 @@ async def admin_reply_by_swipe(m: Message):
         await send_plain(m.chat.id, "Использование: ответьте на сообщение кандидата в этой теме, тогда я пойму, кому отправить.")
         return
 
-    base_text = "Ответ куратора:"
-    if m.text and not m.text.startswith("/pm"):
-        base_text += "\n\n" + m.text.strip()
-
-    # Альбом админа
-    if m.media_group_id:
-        key2 = (user_id, m.media_group_id)
-        _OUT_BUFFERS.setdefault(key2, []).append(m)
-
-        async def _flush_out(k):
-            await asyncio.sleep(0.8)
-            items = _OUT_BUFFERS.pop(k, [])
-            if not items:
-                return
-            text = base_text
-            if ":\n\n" not in base_text:
-                for it in items:
-                    t = _extract_user_text(it)
-                    if t:
-                        text = "Ответ куратора:\n\n" + t
-                        break
-            ok = await _send_admin_bundle_to_user(k[0], text, items)
-            await send_plain(m.chat.id, "✅ Сообщение отправлено пользователю." if ok else "⚠️ Не удалось отправить пакет.")
-
-        if key2 not in _OUT_TASKS or _OUT_TASKS[key2].done():
-            _OUT_TASKS[key2] = asyncio.create_task(_flush_out(key2))
-        return
-
-    # Не альбом
     try:
-        has_media = any([m.photo, m.video, m.document, m.animation, m.voice, m.audio, m.sticker])
-        if has_media:
-            ok = await _send_admin_bundle_to_user(user_id, base_text, [m])
-            await send_plain(m.chat.id, "✅ Сообщение отправлено пользователю." if ok else "⚠️ Не удалось отправить.")
-        else:
-            await send_plain(user_id, base_text)
-            await send_plain(m.chat.id, "✅ Сообщение отправлено пользователю.")
+        await m.copy_to(user_id)
+        await send_plain(m.chat.id, "✅ Сообщение отправлено пользователю.")
     except Exception as e:
         await send_plain(m.chat.id, f"⚠️ Не удалось отправить: {e}")
 
-# ============ HELP / HTTP / main (без изменений) ============
+# ---- ЛС от юзеров: сбор и пересылка ----
 
-# ... остальной хвост файла без изменений ...
+@dp.message()
+async def collect_and_forward(m: Message):
+    if m.chat.type != "private":
+        return
+    if m.text and m.text.startswith("/"):
+        return
+    if m.from_user.id in BANNED_IDS:
+        return
+
+    st = STATE.get(m.from_user.id) or {}
+    if not st.get("active", False):
+        return
+
+    role_key = st.get("role") or USER_LAST_ROLE.get(m.from_user.id)
+    role_title_text = role_title(role_key) if role_key else "—"
+    thread_id = ROLE_TOPICS.get(role_key) if role_key else None
+
+    username = f"@{m.from_user.username}" if m.from_user.username else "—"
+    hashtag_line = f"\n#{m.from_user.username}" if m.from_user.username else ""
+    header = f"📥 Сообщение от {username} (id {m.from_user.id}) | Роль: {role_title_text}{hashtag_line}"
+
+    delivered = False
+    try:
+        if GROUP_ID:
+            header_msg = None
+            if thread_id:
+                header_msg = await bot.send_message(GROUP_ID, header, message_thread_id=thread_id)
+                copied = await m.copy_to(GROUP_ID, message_thread_id=thread_id)
+            else:
+                header_msg = await bot.send_message(GROUP_ID, header)
+                copied = await m.copy_to(GROUP_ID)
+
+            remember_reply_target(header_msg, m.from_user.id)
+            remember_reply_target(copied, m.from_user.id)
+
+            delivered = True
+    except Exception as e:
+        print("Forward error:", e)
+
+    try:
+        if delivered:
+            await send_plain(m.chat.id, "Сообщение доставлено кураторам.")
+        else:
+            await send_plain(m.chat.id, "Не получилось доставить сообщение кураторам. Попробуйте ещё раз позже.")
+    except Exception:
+        pass
+
+# ============ COMMAND SUGGESTIONS (slash menu) ============
+
+async def setup_commands():
+    # Пользовательские команды в ЛС
+    user_cmds = [
+        BotCommand(command="start", description="Начать работу и подать заявку"),
+        BotCommand(command="cancel", description="Закрыть заявку и отключить пересылку"),
+        BotCommand(command="help", description="Что умеет бот (для кандидата)"),
+    ]
+    await bot.set_my_commands(user_cmds, scope=BotCommandScopeAllPrivateChats())
+
+    # Админские команды (в группах, где есть админы)
+    admin_cmds = [
+        BotCommand(command="help", description="Краткая справка по управлению"),
+        BotCommand(command="pm", description="Написать пользователю: /pm ID [текст]"),
+        BotCommand(command="ban", description="Забанить пользователя: /ban ID"),
+        BotCommand(command="unban", description="Разбанить пользователя: /unban ID"),
+        BotCommand(command="topicid", description="Показать ID текущей темы"),
+    ]
+    await bot.set_my_commands(admin_cmds, scope=BotCommandScopeAllChatAdministrators())
+
+# ======== HELP COMMANDS ========
+
+@dp.message(Command("help"))
+async def help_cmd(m: Message):
+    if m.chat.type in ("supergroup", "group") and is_admin(m.from_user.id):
+        text = (
+            "Админ-команды:\n"
+            "— ответьте на сообщение кандидата в этой теме, чтобы написать ему в ЛС\n"
+            "/pm ID [текст] – отправить ЛС пользователю по ID\n"
+            "/ban ID – запретить писать боту и отключить пересылку\n"
+            "/unban ID – снять запрет\n"
+            "/topicid – показать ID темы для привязки вакансий\n"
+            "\nПодсказка: упоминания @username в группах — это просто тег. Для ЛС используйте ответ или ID."
+        )
+        await send_plain(m.chat.id, text)
+    else:
+        text = (
+            "Команды кандидата:\n"
+            "/start – начать подачу заявки\n"
+            "/cancel – закрыть заявку и отключить пересылку\n"
+            "/help – эта справка"
+        )
+        await send_plain(m.chat.id, text)
+
+# ============ FAKE HTTP FOR RENDER ============
+
+class _Handler(BaseHTTPRequestHandler):
+    def _ok(self):
+        body = b"OK"
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        return body
+
+    def do_GET(self):
+        if self.path in ("/", "/healthz"):
+            self.wfile.write(self._ok())
+        else:
+            self.send_response(404); self.end_headers()
+
+    def do_HEAD(self):
+        if self.path in ("/", "/healthz"):
+            self._ok()
+        else:
+            self.send_response(404); self.end_headers()
+
+    def log_message(self, fmt, *args):
+        return
+
+def start_http():
+    srv = HTTPServer(("0.0.0.0", PORT), _Handler)
+    print(f"HTTP server on {PORT}")
+    srv.serve_forever()
+
+async def main():
+    try:
+        await bot.delete_webhook(drop_pending_updates=True)
+    except Exception:
+        pass
+
+    try:
+        me = await bot.get_me()
+        print(f"Running bot: @{me.username} (id {me.id})")
+    except Exception:
+        pass
+
+    try:
+        await setup_commands()
+    except Exception as e:
+        print("setup_commands failed:", e)
+
+    Thread(target=start_http, daemon=True).start()
+    print("Bot polling…")
+    await dp.start_polling(bot)
+
+if __name__ == "__main__":
+    asyncio.run(main())
