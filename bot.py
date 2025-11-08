@@ -616,7 +616,7 @@ async def on_back_applyroles(c: CallbackQuery):
     )
     await c.answer()
 
-@dp.callback_query(F.data == "vacancies"))
+@dp.callback_query(F.data == "vacancies")
 async def on_vacancies(c: CallbackQuery):
     if _cb_too_fast_for_key(c.from_user.id, c.data):
         await c.answer("Притормози, лисёнок...")
@@ -626,6 +626,7 @@ async def on_vacancies(c: CallbackQuery):
     st.update({"flow": "vacancies", "role": None})
     await render_screen(c.from_user.id, c.message.chat.id, "Выбери специальность:", reply_markup=vacancies_keyboard())
     await c.answer()
+
 
 @dp.callback_query(F.data.startswith("v:"))
 async def vacancy_show(c: CallbackQuery):
