@@ -10,7 +10,9 @@ from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command, CommandObject
 from aiogram.types import (
     InlineKeyboardMarkup, InlineKeyboardButton,
-    Message, CallbackQuery
+    Message, CallbackQuery, BotCommand,
+    BotCommandScopeDefault, BotCommandScopeAllPrivateChats,
+    BotCommandScopeAllChatAdministrators, BotCommandScopeChatAdministrators
 )
 
 # ==== HTML parse_mode: совместимость с разными aiogram ====
@@ -82,7 +84,7 @@ ROLE_INFO = {
         "desc": """
 Тихий мученик с ластиком в руке, стирающий чужие буквы с древних страниц. Он возвращает рисунку первозданную чистоту, жертвуя зрением, осанкой и, порой, остатками душевного равновесия.
  """,
-        "guide": "https://docs.google.com/document/d/1Ncg8KpvUa6KferVPдП0XLJ3DILegs1a2d3DhMJTarPA/edit?usp=sharing",
+        "guide": "https://docs.google.com/document/d/1Ncg8KpvUa6KferVPdP0XLJ3DILegs1a2d3DhMJTarPA/edit?usp=sharing",
         "test_folder": "https://drive.google.com/drive/folders/11q4UZeid9ewMze6M9fVMNABdPxeWiZ64?usp=sharing"
     },
     "typesetter": {
@@ -91,7 +93,7 @@ ROLE_INFO = {
 Заклинатель текста, что вплетает слова в очищенные страницы.
 Он подбирает шрифты, ловит ритм строк и старается приручить капризные баблы…
  """,
-        "guide": "https://docs.google.com/document/d/1Xd7Nn0UPS9372f5otgyv8FfО0hGfyNLP/edit?usp=sharing&ouid=104155753409319228630&rtpof=true&sd=true",
+        "guide": "https://docs.google.com/document/d/1Xd7Nн0UPS9372f5otgyv8FfО0hGfyNLP/edit?usp=sharing&ouid=104155753409319228630&rtpof=true&sd=true",
         "test_folder": "https://drive.google.com/drive/folders/1VVrAiriLncotiKkII5_xbAsIyystDtXq?usp=sharing"
     },
     "gluer": {
@@ -100,7 +102,7 @@ ROLE_INFO = {
 Незаметный мастер теней, собирающий рассыпанное полотно страниц в единое целое.
 Он знает, где прячутся лучшие сканы, какие святилища не искажают качество, и на сколько пикселей нужно сдвинуть слой, чтобы стыки исчезли, словно их никогда и не было.
  """,
-        "guide": "https://docs.google.com/document/d/1d-JOzkwз2MyQ1K-8LLezIRka6ceg7mxw6ePnrUvMkho/edit?usp=sharing",
+        "guide": "https://docs.google.com/document/d/1d-JOzkwз2MyQ1K-8LLeзIRka6ceg7mxw6eПnrUvMkho/edit?usp=sharing",
         "test_folder": "https://drive.google.com/drive/folders/1Ape7qsiKkm6uhFeKcYvsh1XOuYAa93f8?usp=sharing"
     },
     "curator": {
@@ -139,7 +141,7 @@ PORT = int(os.getenv("PORT", "10000"))
 STATE: dict[int, dict] = {}
 USER_LAST_ROLE: dict[int, str] = {}
 
-# Бан-лист: в памяти. Можно инициализировать через переменную окружения BANNED_IDS="1,2,3"
+# Бан-лист: в памяти
 BANNED_IDS = {int(x) for x in os.getenv("BANNED_IDS", "").split(",") if x.strip().isdigit()}
 
 _LAST_START_AT: dict[int, float] = {}
@@ -376,6 +378,24 @@ async def cancel(m: Message):
         "Чтобы снова иметь возможность подать заявку и общаться в чате, используй /start"
     )
 
+@dp.message(Command("help"))
+async def help_cmd(m: Message):
+    if m.chat.type == "private":
+        await m.answer(
+            "<b>Команды:</b>\n"
+            "/start — начать работу и подать заявку\n"
+            "/cancel — закрыть заявку и отключить пересылку\n"
+        )
+    elif m.chat.type in ("group", "supergroup"):
+        if is_admin(m.from_user.id):
+            await m.answer(
+                "<b>Админ-команды:</b>\n"
+                "/pm &lt;id&gt; [текст] — написать пользователю (можно с медиа)\n"
+                "/ban &lt;id&gt; — забанить пользователя в боте\n"
+                "/unban &lt;id&gt; — разбанить пользователя\n"
+                "/topicid — показать ID текущей темы\n"
+            )
+
 @dp.message(Command("topicid"))
 async def topic_id(m: Message):
     if getattr(m, "is_topic_message", False):
@@ -405,8 +425,7 @@ async def admin_ban(m: Message, command: CommandObject):
     BANNED_IDS.add(user_id)
     st = STATE.setdefault(user_id, {"flow": None, "role": None, "deadline": None,
                                      "msg_id": None, "chat_id": None, "active": False})
-    st["active"] = False  # перестрахуемся: отключаем пересылку
-    # уведомим пользователя
+    st["active"] = False
     try:
         await bot.send_message(
             user_id,
@@ -699,7 +718,6 @@ async def collect_and_forward(m: Message):
     if m.text and m.text.startswith("/"):
         return
 
-    # забанен? неактивен? тогда даже не пытаемся
     if m.from_user.id in BANNED_IDS:
         return
     st = STATE.get(m.from_user.id) or {}
@@ -725,6 +743,45 @@ async def collect_and_forward(m: Message):
         print("Forward error:", e)
         try:
             await bot.send_message(m.chat.id, "Не получилось доставить сообщение кураторам. Попробуйте ещё раз позже.")
+        except Exception:
+            pass
+
+# ============ COMMAND SUGGESTIONS (slash menu) ============
+
+async def setup_commands():
+    # 1) Сначала очищаем всё, чтобы клиент подтянул свежак
+    try:
+        await bot.delete_my_commands(scope=BotCommandScopeDefault())
+        await bot.delete_my_commands(scope=BotCommandScopeAllPrivateChats())
+        await bot.delete_my_commands(scope=BotCommandScopeAllChatAdministrators())
+        if GROUP_ID:
+            await bot.delete_my_commands(scope=BotCommandScopeChatAdministrators(chat_id=GROUP_ID))
+    except Exception:
+        pass
+
+    # 2) Пользовательские команды (дефолт и ЛС) — это увеличивает шанс появления кнопки со слэшем в ЛС
+    user_cmds = [
+        BotCommand(command="start", description="Начать работу и подать заявку"),
+        BotCommand(command="cancel", description="Закрыть заявку и отключить пересылку"),
+        BotCommand(command="help", description="Подсказки по командам"),
+    ]
+    await bot.set_my_commands(user_cmds, scope=BotCommandScopeDefault())
+    await bot.set_my_commands(user_cmds, scope=BotCommandScopeAllPrivateChats())
+
+    # 3) Админские команды для админов всех групп
+    admin_cmds = [
+        BotCommand(command="pm", description="Написать пользователю: /pm <id> [текст] или с медиа"),
+        BotCommand(command="ban", description="Забанить пользователя: /ban <id>"),
+        BotCommand(command="unban", description="Разбанить пользователя: /unban <id>"),
+        BotCommand(command="topicid", description="Показать ID текущей темы"),
+        BotCommand(command="help", description="Подсказки по админ-командам"),
+    ]
+    await bot.set_my_commands(admin_cmds, scope=BotCommandScopeAllChatAdministrators())
+
+    # 4) И отдельно пробиваем конкретный групповой чат, если указан
+    if GROUP_ID:
+        try:
+            await bot.set_my_commands(admin_cmds, scope=BotCommandScopeChatAdministrators(chat_id=GROUP_ID))
         except Exception:
             pass
 
@@ -770,6 +827,12 @@ async def main():
         print(f"Running bot: @{me.username} (id {me.id})")
     except Exception:
         pass
+
+    # Регистрируем команды для слэш-меню
+    try:
+        await setup_commands()
+    except Exception as e:
+        print("setup_commands failed:", e)
 
     Thread(target=start_http, daemon=True).start()
     print("Bot polling…")
