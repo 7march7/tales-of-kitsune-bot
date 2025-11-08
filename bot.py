@@ -101,7 +101,7 @@ ROLE_INFO = {
 Незаметный мастер теней, собирающий рассыпанное полотно страниц в единое целое.
 Он знает, где прячутся лучшие сканы, какие святилища не искажают качество, и на сколько пикселей нужно сдвинуть слой, чтобы стыки исчезли, словно их никогда и не было.
  """,
-        "guide": "https://docs.google.com/document/d/1d-JOzkwз2MyQ1K-8LLeзIRka6ceg7mxw6ePnrUvMkho/edit?usp=sharing",
+        "guide": "https://docs.google.com/document/d/1d-JOzkwз2MyQ1K-8LLeзIRka6ceг7mxw6ePnrUvMkho/edit?usp=sharing",
         "test_folder": "https://drive.google.com/drive/folders/1Ape7qsiKkm6uhFeKcYvsh1XOuYAa93f8?usp=sharing"
     },
     "curator": {
@@ -111,13 +111,14 @@ ROLE_INFO = {
 Он всегда знает, кто где увяз: у кого полыхают дедлайны, у кого застрял перевод на «я сделаю вечером», а у кого внезапно исчез интернет или совесть.
  """,
         "guide": "https://docs.google.com/document/d/1TVFM-oX-e7mwlxEnSI0hKSIzezruDHj1EHCuVLYK1KY/edit?usp=sharing",
+        # тест-папки у куратора нет — и не надо
     },
     "beta": {
         "title": "Бета-ридер",
         "desc": """
 Читает главы до релиза, высматривая каждую шероховатость, пока текст ещё не покинул стены лисьего логова.
  """,
-        "guide": "https://docs.google.com/document/d/1naGul_KQhkV4bMUBaGzHR5KMwNK90j-gNgr5jrIjxWA/edit?usp=sharing",
+        "guide": "https://docs.google.com/document/d/1naGul_KQhkV4bMUBaGзHR5KMwNK90j-gNgr5jrIjxWA/edit?usp=sharing",
         "test_folder": "https://drive.google.com/drive/folders/1jHYnfP7HGuJZFaM_VOJ1UWe-VLrTvLdw?usp=sharing"
     },
     "typecheck": {
@@ -163,7 +164,7 @@ dp = Dispatcher()
 # ============ SMALL UTILITIES ============
 
 async def send_plain(chat_id: int, text: str):
-    # сообщенька без HTML, чтобы угловые скобки не рвали парсер
+    # Сообщение без HTML, чтобы угловые скобки не рвали парсер
     await bot.send_message(chat_id, text, parse_mode=None, disable_web_page_preview=True)
 
 # ============ KEYBOARDS ============
@@ -499,10 +500,10 @@ async def on_apply(c: CallbackQuery):
     await render_screen(
         c.from_user.id,
         c.message.chat.id,
-        """ㅤВыбери направление,ㅤ
-ㅤ      в котором раскроетсяㅤ
-ㅤ      твой талант под пред-ㅤ
-ㅤ      водительством кицунэ.ㅤ""",
+        """        ㅤВыбери направление,ㅤ
+        ㅤв котором раскроетсяㅤ
+        ㅤтвой талант под пред-ㅤ
+        ㅤводительством кицунэ.ㅤ""",
         reply_markup=apply_roles_keyboard()
     )
     await c.answer()
@@ -549,10 +550,10 @@ async def on_back_applyroles(c: CallbackQuery):
     await render_screen(
         c.from_user.id,
         c.message.chat.id,
-        """ㅤВыбери направление,ㅤ
-ㅤ      в котором раскроетсяㅤ
-ㅤ      твой талант под пред-ㅤ
-ㅤ      водительством кицунэ.ㅤ""",
+        """        ㅤВыбери направление,ㅤ
+        ㅤв котором раскроетсяㅤ
+        ㅤтвой талант под пред-ㅤ
+        ㅤводительством кицунэ.ㅤ""",
         reply_markup=apply_roles_keyboard()
     )
     await c.answer()
@@ -598,24 +599,50 @@ async def start_test(c: CallbackQuery):
     if _cb_too_fast_for_key(c.from_user.id, c.data):
         await c.answer("Притормози, лисёнок...")
         return
+
     key = c.data.split(":", 1)[1]
     info = ROLE_INFO.get(key, {})
-    folder = info.get("test_folder", "—")
+    folder = info.get("test_folder", "")
+    guide = info.get("guide", "")
+
     st = STATE.setdefault(c.from_user.id, {"flow": None, "role": None, "deadline": None,
                                             "msg_id": None, "chat_id": None, "active": False})
     st["deadline"] = datetime.now(timezone.utc)
     st["role"] = key
     USER_LAST_ROLE[c.from_user.id] = key
 
+    title = role_title(key)
+
+    # Текст анкеты — твоя обновленная версия
+    lines = [
+        f"<b>{title}</b>",
+        "Заполните анкету по форме ниже и прикрепите к ней тестовый файл "
+        "(тестовое задание для кураторов отсутствует):",
+        "1. Имя (при желании указать).",
+        "2. Ник (как к вам обращаться).",
+        "3. Наличие/отсутствие опыта (при желании указать). При подаче заявки на куратора указывать обязательно.",
+        "4. Количество свободного времени в неделю.",
+        "5. Дополнительные полезные навыки/знания (работа в приложениях, с нейросетями, знание EXCEL/Google docs и прочее).",
+        "",
+    ]
+
+    # Ссылки блоком в нужном порядке
+    if folder:
+        lines.append(f"<b>Папка с тестовым заданием:</b> {folder}")
+    else:
+        lines.append("<b>Папка с тестовым заданием:</b> отсутствует для этой роли.")
+
+    if guide:
+        lines.append(f"<b>Правила выполнения задания:</b> {guide}")
+
+    lines.append(f"<b>Методичка:</b> {EXTRA_GUIDE_URL}")
+    lines.append(f"<b>Дедлайн:</b> {TEST_DEADLINE_DAYS} дня.")
+
+    text = "\n".join(lines)
+
     await render_screen(
         c.from_user.id, c.message.chat.id,
-        "Заполните анкету по форме ниже (отправьте одним сообщением — пункты можно перечислить):\n"
-        "Имя (при желании указать) / Ник (как к вам обращаться)\n"
-        "Наличие/отсутствие опыта (при желании указать)\n"
-        "Количество свободного времени в неделю\n"
-        "Дополнительные полезные навыки/знания (работа в приложениях, с нейросетями, знание EXCEL/Google docs и прочее)\n\n"
-        f"Папка с тестовым заданием: {folder}\n"
-        f"Дедлайн: {TEST_DEADLINE_DAYS} дня.",
+        text,
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="« Назад", callback_data="back:applyroles")]
         ])
