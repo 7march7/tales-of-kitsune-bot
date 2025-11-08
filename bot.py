@@ -1,6 +1,7 @@
 import os
 import re
 import asyncio
+import html as pyhtml
 from datetime import datetime, timedelta, timezone
 from threading import Thread
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -11,7 +12,8 @@ from aiogram.filters import Command, CommandObject
 from aiogram.types import (
     InlineKeyboardMarkup, InlineKeyboardButton,
     Message, CallbackQuery, BotCommand,
-    BotCommandScopeAllPrivateChats, BotCommandScopeAllChatAdministrators
+    BotCommandScopeAllPrivateChats, BotCommandScopeAllChatAdministrators,
+    InputMediaPhoto, InputMediaVideo, InputMediaDocument, InputMediaAudio
 )
 
 # ==== HTML parse_mode: совместимость с разными aiogram ====
@@ -136,13 +138,12 @@ PORT = int(os.getenv("PORT", "10000"))
 
 # ============ BOT STATE / ACCESS CONTROL ============
 
+# STATE[user_id] = { flow, role, deadline, msg_id, chat_id, active }
 STATE: dict[int, dict] = {}
 USER_LAST_ROLE: dict[int, str] = {}
 
+# Бан-лист
 BANNED_IDS = {int(x) for x in os.getenv("BANNED_IDS", "").split(",") if x.strip().isdigit()}
-
-# Индексация пересланных сообщений для «свайп-ответа»
-FORWARD_INDEX: dict[tuple[int, int], int] = {}  # (group_chat_id, message_id) -> user_id
 
 _LAST_START_AT: dict[int, float] = {}
 _LAST_CB_KEY_AT: dict[tuple[int, str], float] = {}
@@ -152,6 +153,8 @@ _USER_LOCKS: dict[int, asyncio.Lock] = {}
 def is_admin(user_id: int) -> bool:
     return not ADMIN_IDS or user_id in ADMIN_IDS
 
+# ============ BOT CORE ============
+
 if DefaultBotProperties:
     bot = Bot(BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 else:
@@ -159,16 +162,81 @@ else:
 
 dp = Dispatcher()
 
-# ===== utils
+# ============ SMALL UTILITIES ============
 
 async def send_plain(chat_id: int, text: str):
     await bot.send_message(chat_id, text, parse_mode=None, disable_web_page_preview=True)
 
-def user_is_active(user_id: int) -> bool:
-    st = STATE.get(user_id) or {}
-    return bool(st.get("active")) and user_id not in BANNED_IDS
+def esc(s: str) -> str:
+    return pyhtml.escape(s or "")
 
-# ===== keyboards
+def header_line(username: str | None, uid: int, role_text: str) -> str:
+    uname = f"@{username}" if username else "—"
+    return f"📥 Сообщение от {uname} (id {uid}) | Роль: {role_text}"
+
+# ============ MEDIA GROUP AGGREGATION ============
+
+# ключ: (from_id, media_group_id)
+PENDING_ALBUMS: dict[tuple[int, str], dict] = {}
+
+ALBUM_COLLECT_SEC = 1.2  # пауза, чтобы собрать все части альбома
+
+def to_input_media(m: Message):
+    cap = m.caption or ""
+    if m.photo:
+        return InputMediaPhoto(media=m.photo[-1].file_id, caption=cap or None, parse_mode=None)
+    if m.video:
+        return InputMediaVideo(media=m.video.file_id, caption=cap or None, parse_mode=None)
+    if m.document:
+        return InputMediaDocument(media=m.document.file_id, caption=cap or None, parse_mode=None)
+    if m.audio:
+        return InputMediaAudio(media=m.audio.file_id, caption=cap or None, parse_mode=None)
+    # анимации/стикеры/voice в альбом не идут
+    return None
+
+async def _flush_album(key: tuple[int, str]):
+    pack = PENDING_ALBUMS.get(key)
+    if not pack:
+        return
+    await asyncio.sleep(ALBUM_COLLECT_SEC)
+    pack = PENDING_ALBUMS.pop(key, None)
+    if not pack:
+        return
+
+    chat_id = pack["chat_id"]
+    thread_id = pack["thread_id"]
+    header = pack["header"]
+    media_list = pack["media"]
+
+    delivered = False
+    try:
+        if GROUP_ID:
+            await bot.send_message(chat_id, header, message_thread_id=thread_id)
+            # Telegram разрешает подпись только у одного элемента — оставим у первого
+            # У остальных затираем caption, чтобы не упасть на валидации
+            first = True
+            cleaned = []
+            for item in media_list:
+                if first:
+                    cleaned.append(item)
+                    first = False
+                else:
+                    cls = type(item)
+                    cleaned.append(cls(media=item.media))  # без подписи
+            await bot.send_media_group(chat_id, cleaned, message_thread_id=thread_id)
+            delivered = True
+    except Exception as e:
+        print("Album forward error:", e)
+
+    try:
+        if delivered:
+            await send_plain(pack["user_chat"], "Сообщение доставлено кураторам.")
+        else:
+            await send_plain(pack["user_chat"], "Не получилось доставить сообщение кураторам. Попробуйте ещё раз позже.")
+    except Exception:
+        pass
+
+# ============ KEYBOARDS ============
 
 def main_menu():
     return InlineKeyboardMarkup(inline_keyboard=[
@@ -233,7 +301,7 @@ def start_test_keyboard(role_key: str):
         [InlineKeyboardButton(text="« Назад", callback_data="back:applyroles")]
     ])
 
-# ===== helpers
+# ============ HELPERS ============
 
 def role_title(key: str) -> str:
     return ROLE_INFO.get(key, {}).get("title", "—")
@@ -303,7 +371,15 @@ async def schedule_deadline_notify(user_id: int, role_key: str, started_at: date
         except Exception as e:
             print("Notify user failed:", e)
 
-async def render_screen(user_id: int, chat_id: int, text: str, *, reply_markup=None, parse_mode: str | None = ParseMode.HTML):
+# --- один «экран» на пользователя ---
+async def render_screen(
+    user_id: int,
+    chat_id: int,
+    text: str,
+    *,
+    reply_markup=None,
+    parse_mode: str | None = ParseMode.HTML
+):
     lock = _USER_LOCKS.setdefault(user_id, asyncio.Lock())
     async with lock:
         st = STATE.setdefault(user_id, {"flow": None, "role": None, "deadline": None,
@@ -322,8 +398,11 @@ async def render_screen(user_id: int, chat_id: int, text: str, *, reply_markup=N
         if msg_id:
             try:
                 await bot.edit_message_text(
-                    text=text, chat_id=chat_id, message_id=msg_id,
-                    reply_markup=reply_markup, parse_mode=parse_mode
+                    text=text,
+                    chat_id=chat_id,
+                    message_id=msg_id,
+                    reply_markup=reply_markup,
+                    parse_mode=parse_mode
                 )
                 st["chat_id"] = chat_id
                 return
@@ -331,11 +410,16 @@ async def render_screen(user_id: int, chat_id: int, text: str, *, reply_markup=N
                 print("Edit failed, fallback to send:", e)
                 st["msg_id"] = None
 
-        sent = await bot.send_message(chat_id, text, reply_markup=reply_markup, parse_mode=parse_mode)
+        sent = await bot.send_message(
+            chat_id,
+            text,
+            reply_markup=reply_markup,
+            parse_mode=parse_mode
+        )
         st["msg_id"] = sent.message_id
         st["chat_id"] = chat_id
 
-# ===== HANDLERS
+# ============ HANDLERS ============
 
 @dp.message(Command("start"))
 async def cmd_start(m: Message):
@@ -364,12 +448,6 @@ async def cancel(m: Message):
     st = STATE.setdefault(m.from_user.id, {"flow": None, "role": None, "deadline": None,
                                             "msg_id": None, "chat_id": None, "active": False})
     st.update({"flow": None, "role": None, "active": False})
-    try:
-        if st.get("msg_id") and st.get("chat_id"):
-            await bot.delete_message(st["chat_id"], st["msg_id"])
-    except Exception:
-        pass
-    st["msg_id"] = None
     await send_plain(
         m.chat.id,
         "Ты больше не желаешь быть частью стаи? Окей, мы закрыли твою заявку и кураторы больше не увидят твои сообщения. "
@@ -445,20 +523,12 @@ async def admin_unban(m: Message, command: CommandObject):
     else:
         await send_plain(m.chat.id, "Этого лиса и так никто не держал в клетке. Он не в бане.")
 
-# ---- Кнопки: гейт
-
-def _guard_callbacks(c: CallbackQuery) -> bool:
-    if not user_is_active(c.from_user.id):
-        asyncio.create_task(c.answer("Сначала /start, потом кнопочки."))
-        return False
-    return True
+# ---- Кнопки и экраны ----
 
 @dp.callback_query(F.data == "about")
 async def on_about(c: CallbackQuery):
     if _cb_too_fast_for_key(c.from_user.id, c.data):
         await c.answer("Притормози, лисёнок...")
-        return
-    if not _guard_callbacks(c):
         return
 
     about_html = (
@@ -478,7 +548,9 @@ async def on_about(c: CallbackQuery):
     )
 
     await render_screen(
-        c.from_user.id, c.message.chat.id, about_html,
+        c.from_user.id,
+        c.message.chat.id,
+        about_html,
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="« Назад", callback_data="back:menu"),
              InlineKeyboardButton(text="Подать заявку", callback_data="apply")]
@@ -491,34 +563,18 @@ async def on_apply(c: CallbackQuery):
     if _cb_too_fast_for_key(c.from_user.id, c.data):
         await c.answer("Притормози, лисёнок...")
         return
-    if not _guard_callbacks(c):
-        return
-
     st = STATE.setdefault(c.from_user.id, {"flow": None, "role": None, "deadline": None,
                                             "msg_id": None, "chat_id": None, "active": False})
     st.update({"flow": "apply", "role": None})
     await render_screen(
-        c.from_user.id, c.message.chat.id,
-        """ㅤВыбери направление,ㅤ
-ㅤв котором раскроетсяㅤ
-ㅤтвой талант под пред-ㅤ
-ㅤводительством кицунэ.ㅤ""",
+        c.from_user.id,
+        c.message.chat.id,
+        """        ㅤ        Выбери направление,ㅤ
+        ㅤв котором раскроетсяㅤ
+        ㅤтвой талант под пред-ㅤ
+        ㅤводительством кицунэ.ㅤ""",
         reply_markup=apply_roles_keyboard()
     )
-    await c.answer()
-
-@dp.callback_query(F.data == "vacancies")
-async def on_vacancies(c: CallbackQuery):
-    if _cb_too_fast_for_key(c.from_user.id, c.data):
-        await c.answer("Притормози, лисёнок...")
-        return
-    if not _guard_callbacks(c):
-        return
-
-    st = STATE.setdefault(c.from_user.id, {"flow": None, "role": None, "deadline": None,
-                                            "msg_id": None, "chat_id": None, "active": False})
-    st.update({"flow": "vacancies", "role": None})
-    await render_screen(c.from_user.id, c.message.chat.id, "Выбери специальность:", reply_markup=vacancies_keyboard())
     await c.answer()
 
 @dp.callback_query(F.data == "back:menu")
@@ -526,9 +582,6 @@ async def on_back_menu(c: CallbackQuery):
     if _cb_too_fast_for_key(c.from_user.id, c.data):
         await c.answer("Притормози, лисёнок...")
         return
-    if not _guard_callbacks(c):
-        return
-
     st = STATE.setdefault(c.from_user.id, {"flow": None, "role": None, "deadline": None,
                                             "msg_id": None, "chat_id": None, "active": False})
     st.update({"flow": None, "role": None})
@@ -549,20 +602,29 @@ async def on_back_applyroles(c: CallbackQuery):
     if _cb_too_fast_for_key(c.from_user.id, c.data):
         await c.answer("Притормози, лисёнок...")
         return
-    if not _guard_callbacks(c):
-        return
-
     st = STATE.setdefault(c.from_user.id, {"flow": None, "role": None, "deadline": None,
                                             "msg_id": None, "chat_id": None, "active": False})
     st.update({"flow": "apply", "role": None})
     await render_screen(
-        c.from_user.id, c.message.chat.id,
-        """ㅤВыбери направление,ㅤ
-ㅤв котором раскроетсяㅤ
-ㅤтвой талант под пред-ㅤ
-ㅤводительством кицунэ.ㅤ""",
+        c.from_user.id,
+        c.message.chat.id,
+        """        ㅤ        Выбери направление,ㅤ
+        ㅤв котором раскроетсяㅤ
+        ㅤтвой талант под пред-ㅤ
+        ㅤводительством кицунэ.ㅤ""",
         reply_markup=apply_roles_keyboard()
     )
+    await c.answer()
+
+@dp.callback_query(F.data == "vacancies"))
+async def on_vacancies(c: CallbackQuery):
+    if _cb_too_fast_for_key(c.from_user.id, c.data):
+        await c.answer("Притормози, лисёнок...")
+        return
+    st = STATE.setdefault(c.from_user.id, {"flow": None, "role": None, "deadline": None,
+                                            "msg_id": None, "chat_id": None, "active": False})
+    st.update({"flow": "vacancies", "role": None})
+    await render_screen(c.from_user.id, c.message.chat.id, "Выбери специальность:", reply_markup=vacancies_keyboard())
     await c.answer()
 
 @dp.callback_query(F.data.startswith("v:"))
@@ -570,9 +632,6 @@ async def vacancy_show(c: CallbackQuery):
     if _cb_too_fast_for_key(c.from_user.id, c.data):
         await c.answer("Притормози, лисёнок...")
         return
-    if not _guard_callbacks(c):
-        return
-
     key = c.data.split(":", 1)[1]
     st = STATE.setdefault(c.from_user.id, {"flow": None, "role": None, "deadline": None,
                                             "msg_id": None, "chat_id": None, "active": False})
@@ -591,9 +650,6 @@ async def apply_role_intro(c: CallbackQuery):
     if _cb_too_fast_for_key(c.from_user.id, c.data):
         await c.answer("Притормози, лисёнок...")
         return
-    if not _guard_callbacks(c):
-        return
-
     key = c.data.split(":", 1)[1]
     st = STATE.setdefault(c.from_user.id, {"flow": None, "role": None, "deadline": None,
                                             "msg_id": None, "chat_id": None, "active": False})
@@ -612,18 +668,18 @@ async def start_test(c: CallbackQuery):
     if _cb_too_fast_for_key(c.from_user.id, c.data):
         await c.answer("Притормози, лисёнок...")
         return
-    if not _guard_callbacks(c):
-        return
 
     key = c.data.split(":", 1)[1]
     info = ROLE_INFO.get(key, {})
     folder = info.get("test_folder", "")
     guide = info.get("guide", "")
+
     st = STATE.setdefault(c.from_user.id, {"flow": None, "role": None, "deadline": None,
                                             "msg_id": None, "chat_id": None, "active": False})
     st["deadline"] = datetime.now(timezone.utc)
     st["role"] = key
     USER_LAST_ROLE[c.from_user.id] = key
+
     title = role_title(key)
 
     lines = [
@@ -638,19 +694,23 @@ async def start_test(c: CallbackQuery):
         "6*. Укажите язык, с которого был выполнен перевод (пункт для переводчиков).",
         "",
     ]
+
     if folder:
         lines.append(f"<b>Папка с тестовым заданием:</b> {folder}")
     else:
         lines.append("<b>Папка с тестовым заданием:</b> отсутствует для этой роли.")
+
     if guide:
         lines.append(f"<b>Правила выполнения задания:</b> {guide}")
+
     lines.append(f"<b>Методичка:</b> {EXTRA_GUIDE_URL}")
     lines.append(f"<b>Дедлайн:</b> {TEST_DEADLINE_DAYS} дня.")
 
     text = "\n".join(lines)
 
     await render_screen(
-        c.from_user.id, c.message.chat.id, text,
+        c.from_user.id, c.message.chat.id,
+        text,
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="« Назад", callback_data="back:applyroles")]
         ])
@@ -659,53 +719,30 @@ async def start_test(c: CallbackQuery):
     asyncio.create_task(schedule_deadline_notify(c.from_user.id, key, st["deadline"]))
     await c.answer("Тест выдан")
 
-# ---- helpers: resolve target user for /pm ----
-USERNAME_RE = re.compile(r"^@?([A-Za-z0-9_]{5,})$")
+# ---- /pm: по ID, по @username и ответом на сообщение ----
 
-async def _extract_user_id_from_replied(msg: Message) -> int | None:
-    if not msg:
-        return None
-    key = (msg.chat.id, msg.message_id)
-    if key in FORWARD_INDEX:
-        return FORWARD_INDEX[key]
-    txt = (msg.text or msg.caption or "")
-    m2 = re.search(r"\bid\s+(\d{5,})\b", txt)
-    if m2:
+async def _resolve_pm_target(m: Message, command: CommandObject):
+    # 1) реплай на форвард из пользователя
+    if m.reply_to_message and m.reply_to_message.forward_origin:
         try:
-            return int(m2.group(1))
+            uid = m.reply_to_message.forward_origin.sender_user.id  # Telegram API 6.9+
+            return uid
         except Exception:
-            return None
+            pass
+    # 2) явный ID в аргументах
+    args = (command.args or "").split(maxsplit=1)
+    if args:
+        # @username?
+        if args[0].startswith("@"):
+            try:
+                user = await bot.get_chat(args[0])
+                return user.id
+            except Exception:
+                return None
+        # просто число
+        if args[0].isdigit():
+            return int(args[0])
     return None
-
-async def resolve_pm_target_and_text(args_line: str, replied: Message | None):
-    args_line = (args_line or "").strip()
-
-    uid_from_reply = await _extract_user_id_from_replied(replied)
-    if uid_from_reply:
-        return uid_from_reply, args_line
-
-    if not args_line:
-        return None, ""
-
-    parts = args_line.split(maxsplit=1)
-    first = parts[0]
-    rest = parts[1] if len(parts) > 1 else ""
-
-    if first.isdigit():
-        return int(first), rest
-
-    m = USERNAME_RE.match(first)
-    if m:
-        uname = m.group(1)
-        try:
-            chat = await bot.get_chat(f"@{uname}")
-            return chat.id, rest
-        except Exception:
-            return None, rest
-
-    return None, rest
-
-# ---- /pm для админов ----
 
 @dp.message(Command("pm"))
 async def admin_pm(m: Message, command: CommandObject):
@@ -714,104 +751,58 @@ async def admin_pm(m: Message, command: CommandObject):
     if not is_admin(m.from_user.id):
         return
 
-    target_id, rest = await resolve_pm_target_and_text(command.args or "", m.reply_to_message)
-    if not target_id:
-        await send_plain(m.chat.id, "Айди должен быть числом или @username. Пример: /pm 123456789 Привет или /pm @username Привет\nМожно также ответить на сообщение бота свайпом и написать: /pm Привет")
+    user_id = await _resolve_pm_target(m, command)
+    if not user_id:
+        await send_plain(m.chat.id, "Использование: ответьте на сообщение кандидата ИЛИ /pm ID [текст] ИЛИ /pm @username [текст]")
         return
+
+    # отделяем текст
+    args = (command.args or "").split(maxsplit=1)
+    text_body = ""
+    if args:
+        if args[0].startswith("@") or args[0].isdigit():
+            if len(args) > 1:
+                text_body = args[1].strip()
+        else:
+            text_body = (command.args or "").strip()
 
     has_media = any([m.photo, m.document, m.video, m.animation, m.voice, m.audio, m.sticker])
 
     try:
         if has_media:
-            caption = (m.caption or "").strip()
-            if rest:
-                caption = f"{rest}\n\n{caption}" if caption else rest
-            prefix = "Сообщение от куратора:"
-            caption = f"{prefix}\n\n{caption}" if caption else prefix
-
+            caption = "Ответ куратора:"
+            if text_body:
+                caption += "\n\n" + text_body
             if m.photo:
-                await bot.send_photo(target_id, m.photo[-1].file_id, caption=caption, parse_mode=None)
+                await bot.send_photo(user_id, m.photo[-1].file_id, caption=caption, parse_mode=None)
             elif m.document:
-                await bot.send_document(target_id, m.document.file_id, caption=caption, parse_mode=None)
+                await bot.send_document(user_id, m.document.file_id, caption=caption, parse_mode=None)
             elif m.video:
-                await bot.send_video(target_id, m.video.file_id, caption=caption, parse_mode=None)
+                await bot.send_video(user_id, m.video.file_id, caption=caption, parse_mode=None)
             elif m.animation:
-                await bot.send_animation(target_id, m.animation.file_id, caption=caption, parse_mode=None)
+                await bot.send_animation(user_id, m.animation.file_id, caption=caption, parse_mode=None)
             elif m.audio:
-                await bot.send_audio(target_id, m.audio.file_id, caption=caption, parse_mode=None)
+                await bot.send_audio(user_id, m.audio.file_id, caption=caption, parse_mode=None)
             elif m.voice:
-                await bot.send_voice(target_id, m.voice.file_id, caption=caption)
+                await bot.send_voice(user_id, m.voice.file_id, caption=caption)
             elif m.sticker:
-                await bot.send_sticker(target_id, m.sticker.file_id)
-                if caption and caption != "Сообщение от куратора:":
-                    await send_plain(target_id, caption)
-            else:
-                await send_plain(target_id, "Сообщение от куратора:")
+                await bot.send_sticker(user_id, m.sticker.file_id)
+                if text_body:
+                    await send_plain(user_id, caption)
         else:
-            body = rest.strip() if rest else (m.text or "").split(maxsplit=2)[-1].strip()
-            msg = "Сообщение от куратора:"
-            if body:
-                msg += f"\n\n{body}"
-            await send_plain(target_id, msg)
+            msg = "Ответ куратора:"
+            if text_body:
+                msg += "\n\n" + text_body
+            await send_plain(user_id, msg)
 
         await send_plain(m.chat.id, "✅ Сообщение отправлено пользователю.")
     except Exception as e:
         await send_plain(m.chat.id, f"⚠️ Не удалось отправить: {e}")
 
-# ---- Быстрый ответ по свайпу (reply_to_message) в админчате ----
-
-@dp.message(F.reply_to_message)
-async def admin_quick_reply(m: Message):
-    if m.chat.type not in ("group", "supergroup"):
-        return
-    if not is_admin(m.from_user.id):
-        return
-
-    replied = m.reply_to_message
-    target_id = await _extract_user_id_from_replied(replied)
-    if not target_id:
-        await send_plain(m.chat.id, "Не могу определить адресата. Ответь на сообщение бота с хедером или свежую копию.")
-        return
-
-    try:
-        has_media = any([m.photo, m.document, m.video, m.animation, m.voice, m.audio, m.sticker])
-        prefix = "Ответ куратора:"
-
-        if has_media:
-            caption = m.caption or ""
-            caption = f"{prefix}\n\n{caption}" if caption.strip() else prefix
-
-            if m.photo:
-                await bot.send_photo(target_id, m.photo[-1].file_id, caption=caption, parse_mode=None)
-            elif m.document:
-                await bot.send_document(target_id, m.document.file_id, caption=caption, parse_mode=None)
-            elif m.video:
-                await bot.send_video(target_id, m.video.file_id, caption=caption, parse_mode=None)
-            elif m.animation:
-                await bot.send_animation(target_id, m.animation.file_id, caption=caption, parse_mode=None)
-            elif m.audio:
-                await bot.send_audio(target_id, m.audio.file_id, caption=caption, parse_mode=None)
-            elif m.voice:
-                await bot.send_voice(target_id, m.voice.file_id, caption=caption)
-            elif m.sticker:
-                await bot.send_sticker(target_id, m.sticker.file_id)
-                if (m.caption or "").strip():
-                    await send_plain(target_id, f"{prefix}\n\n{m.caption}")
-            else:
-                await send_plain(target_id, prefix)
-        else:
-            body = (m.text or "").strip() or " "
-            await send_plain(target_id, f"{prefix}\n\n{body}")
-
-        await send_plain(m.chat.id, "✅ Отправлено в ЛС кандидату.")
-    except Exception as e:
-        await send_plain(m.chat.id, f"⚠️ Не удалось отправить: {e}")
-
-# ---- ЛС от юзеров: сбор и пересылка + корректные статусы ----
+# ---- ЛС от юзеров: сбор и пересылка ----
 
 @dp.message()
 async def collect_and_forward(m: Message):
-    # принимаем только личку и не команды
     if m.chat.type != "private":
         return
     if m.text and m.text.startswith("/"):
@@ -827,24 +818,58 @@ async def collect_and_forward(m: Message):
     role_title_text = role_title(role_key) if role_key else "—"
     thread_id = ROLE_TOPICS.get(role_key) if role_key else None
 
-    username = f"@{m.from_user.username}" if m.from_user.username else "—"
-    header = f"📥 Сообщение от {username} (id {m.from_user.id}) | Роль: {role_title_text}"
+    uname = m.from_user.username
+    header = header_line(uname, m.from_user.id, role_title_text)
 
     delivered = False
-    try:
-        if GROUP_ID:
-            if thread_id:
+
+    # 1) media group: накапливаем и шлём одним батчем
+    if m.media_group_id:
+        media = to_input_media(m)
+        if media is None:
+            # неподдерживаемый в альбоме тип — просто копируем отдельно
+            try:
+                if GROUP_ID:
+                    await bot.send_message(GROUP_ID, header, message_thread_id=thread_id)
+                    await m.copy_to(GROUP_ID, message_thread_id=thread_id)
+                    delivered = True
+            except Exception as e:
+                print("Forward error (unsupported album type):", e)
+        else:
+            key = (m.from_user.id, m.media_group_id)
+            pack = PENDING_ALBUMS.setdefault(key, {
+                "media": [],
+                "chat_id": GROUP_ID,
+                "thread_id": thread_id,
+                "header": header,
+                "user_chat": m.chat.id,
+            })
+            pack["media"].append(media)
+            # запуск таймера отправки
+            if len(pack["media"]) == 1:
+                asyncio.create_task(_flush_album(key))
+            return  # подтверждение отправим из _flush_album
+
+    # 2) чистый текст: единым сообщением
+    elif m.text:
+        body = header + "\nтекст:\n" + esc(m.text)
+        try:
+            if GROUP_ID:
+                await bot.send_message(GROUP_ID, body, message_thread_id=thread_id, parse_mode=ParseMode.HTML)
+                delivered = True
+        except Exception as e:
+            print("Forward text error:", e)
+
+    # 3) одиночное медиа: заголовок + копия
+    else:
+        try:
+            if GROUP_ID:
                 await bot.send_message(GROUP_ID, header, message_thread_id=thread_id)
                 await m.copy_to(GROUP_ID, message_thread_id=thread_id)
-            else:
-                await bot.send_message(GROUP_ID, header)
-                await m.copy_to(GROUP_ID)
-        delivered = True
-    except Exception as e:
-        # Не шлём тут пользователю ничего. Просто лог и ниже одно уведомление по результату.
-        print("Forward error:", repr(e))
+                delivered = True
+        except Exception as e:
+            print("Forward media error:", e)
 
-    # уведомляем пользователя ОДИН раз, по факту
     try:
         if delivered:
             await send_plain(m.chat.id, "Сообщение доставлено кураторам.")
@@ -853,10 +878,10 @@ async def collect_and_forward(m: Message):
     except Exception:
         pass
 
-
 # ============ COMMAND SUGGESTIONS (slash menu) ============
 
 async def setup_commands():
+    # Пользовательские команды в ЛС
     user_cmds = [
         BotCommand(command="start", description="Начать работу и подать заявку"),
         BotCommand(command="cancel", description="Закрыть заявку и отключить пересылку"),
@@ -864,9 +889,10 @@ async def setup_commands():
     ]
     await bot.set_my_commands(user_cmds, scope=BotCommandScopeAllPrivateChats())
 
+    # Админские команды (в группах, где есть админы)
     admin_cmds = [
         BotCommand(command="help", description="Краткая справка по управлению"),
-        BotCommand(command="pm", description="Написать пользователю: /pm ID|@user [текст]"),
+        BotCommand(command="pm", description="Написать пользователю: /pm ID | @username [текст] или ответом"),
         BotCommand(command="ban", description="Забанить пользователя: /ban ID"),
         BotCommand(command="unban", description="Разбанить пользователя: /unban ID"),
         BotCommand(command="topicid", description="Показать ID текущей темы"),
@@ -880,11 +906,11 @@ async def help_cmd(m: Message):
     if m.chat.type in ("supergroup", "group") and is_admin(m.from_user.id):
         text = (
             "Админ-команды:\n"
-            "/pm ID|@username [текст] – отправить ЛС пользователю или ответить на сообщение\n"
+            "/pm ID | @username [текст] – отправить ЛС пользователю или ответом на его сообщение\n"
             "/ban ID – запретить писать боту и отключить пересылку\n"
             "/unban ID – снять запрет\n"
             "/topicid – показать ID темы для привязки вакансий\n"
-            "\nПодсказка: в группах клиенты Telegram добавляют @бот к командам автоматически."
+            "\nПодсказка: Telegram сам добавляет @бот к командам в группах. Отключить это невозможно."
         )
         await send_plain(m.chat.id, text)
     else:
