@@ -57,18 +57,15 @@ ROLE_INFO = {
 Он изучает древние письмена, полные странных знаков и смыслов, сокрытых от простых смертных, и извлекает из них истории, понятные человеческому сознанию. 
 Живёт на кофе, словарях и милости духов-кицунэ, что шепчут ему подсказки между строчек.
 
-
 <b>Доступные языки:</b>
 • Английский
 • Испанский
 • Корейский
 • Индонезийский
 
-
 <i>Современные чары машинного перевода и нейросетей можно звать на помощь, но не позволяйте им творить вместо вас.</i>
  """,
         "guide": "https://docs.google.com/document/d/1fKu8n-1nLpgLHV2-XNPM-HeBaCFlpX23lbAdXDllB-A/edit?usp=sharing",
-        
         "test_folder": "https://drive.google.com/drive/folders/1jferUktlsctxsRWYmHiqU7gHr6JE6eyJ?usp=sharing"
     },
     "editor": {
@@ -78,7 +75,6 @@ ROLE_INFO = {
 Он вычищает следы человеческой небрежности, полирует текст до блеска и собирает рассыпавшиеся мысли в чёткий узор фраз.
  """,
         "guide": "https://docs.google.com/document/d/1yBjmbplGJ2owy-0a9IrRO9UyskW9ljLAqZctCoOJal0/edit?usp=sharing",
-        
         "test_folder": "https://drive.google.com/drive/folders/1rsCbmU3mhJQClZkW8VyToHZkYAFIxIlB?usp=sharing"
     },
     "cleaner": {
@@ -86,8 +82,7 @@ ROLE_INFO = {
         "desc": """
 Тихий мученик с ластиком в руке, стирающий чужие буквы с древних страниц. Он возвращает рисунку первозданную чистоту, жертвуя зрением, осанкой и, порой, остатками душевного равновесия.
  """,
-        "guide": "https://docs.google.com/document/d/1Ncg8KpvUa6KferVPdP0XLJ3DILegs1a2d3DhMJTarPA/edit?usp=sharing",
-        
+        "guide": "https://docs.google.com/document/d/1Ncg8KpvUa6KferVPдП0XLJ3DILegs1a2d3DhMJTarPA/edit?usp=sharing",
         "test_folder": "https://drive.google.com/drive/folders/11q4UZeid9ewMze6M9fVMNABdPxeWiZ64?usp=sharing"
     },
     "typesetter": {
@@ -97,7 +92,6 @@ ROLE_INFO = {
 Он подбирает шрифты, ловит ритм строк и старается приручить капризные баблы…
  """,
         "guide": "https://docs.google.com/document/d/1Xd7Nn0UPS9372f5otgyv8FfО0hGfyNLP/edit?usp=sharing&ouid=104155753409319228630&rtpof=true&sd=true",
-        
         "test_folder": "https://drive.google.com/drive/folders/1VVrAiriLncotiKkII5_xbAsIyystDtXq?usp=sharing"
     },
     "gluer": {
@@ -106,8 +100,7 @@ ROLE_INFO = {
 Незаметный мастер теней, собирающий рассыпанное полотно страниц в единое целое.
 Он знает, где прячутся лучшие сканы, какие святилища не искажают качество, и на сколько пикселей нужно сдвинуть слой, чтобы стыки исчезли, словно их никогда и не было.
  """,
-        "guide": "https://docs.google.com/document/d/1d-JOzkwz2MyQ1K-8LLezIRka6ceg7mxw6ePnrUvMkho/edit?usp=sharing",
-        
+        "guide": "https://docs.google.com/document/d/1d-JOzkwз2MyQ1K-8LLezIRka6ceg7mxw6ePnrUvMkho/edit?usp=sharing",
         "test_folder": "https://drive.google.com/drive/folders/1Ape7qsiKkm6uhFeKcYvsh1XOuYAa93f8?usp=sharing"
     },
     "curator": {
@@ -124,7 +117,6 @@ ROLE_INFO = {
 Читает главы до релиза, высматривая каждую шероховатость, пока текст ещё не покинул стены лисьего логова.
  """,
         "guide": "https://docs.google.com/document/d/1naGul_KQhkV4bMUBaGzHR5KMwNK90j-gNgr5jrIjxWA/edit?usp=sharing",
-        
         "test_folder": "https://drive.google.com/drive/folders/1jHYnfP7HGuJZFaM_VOJ1UWe-VLrTvLdw?usp=sharing"
     },
     "typecheck": {
@@ -134,13 +126,29 @@ ROLE_INFO = {
 Он зорко следит за выравниванием, отступами, переносами и толщиной обводки, чтобы каждая страница дышала гармонией и аккуратностью.
  """,
         "guide": "https://docs.google.com/document/d/1--JVkuwGl1u5UUpGKnzaETmIg6EJJX2u/edit?usp=sharing&ouid=104155753409319228630&rtpof=true&sd=true",
-        
         "test_folder": "https://drive.google.com/drive/folders/1O1Dw5yWrsR27ZXVbQDMP0q4GDBV5F-Un?usp=sharing"
     },
 }
 
 TEST_DEADLINE_DAYS = int(os.getenv("TEST_DEADLINE_DAYS", "3"))
 PORT = int(os.getenv("PORT", "10000"))
+
+# ============ BOT STATE / ACCESS CONTROL ============
+
+# STATE[user_id] = { flow, role, deadline, msg_id, chat_id, active }
+STATE: dict[int, dict] = {}
+USER_LAST_ROLE: dict[int, str] = {}
+
+# Бан-лист: в памяти. Можно инициализировать через переменную окружения BANNED_IDS="1,2,3"
+BANNED_IDS = {int(x) for x in os.getenv("BANNED_IDS", "").split(",") if x.strip().isdigit()}
+
+_LAST_START_AT: dict[int, float] = {}
+_LAST_CB_KEY_AT: dict[tuple[int, str], float] = {}
+_CB_DEBOUNCE_SEC = 2.5
+_USER_LOCKS: dict[int, asyncio.Lock] = {}
+
+def is_admin(user_id: int) -> bool:
+    return not ADMIN_IDS or user_id in ADMIN_IDS
 
 # ============ BOT CORE ============
 
@@ -150,13 +158,6 @@ else:
     bot = Bot(BOT_TOKEN, parse_mode=ParseMode.HTML)
 
 dp = Dispatcher()
-
-STATE = {}
-USER_LAST_ROLE: dict[int, str] = {}
-_LAST_START_AT: dict[int, float] = {}
-_LAST_CB_KEY_AT: dict[tuple[int, str], float] = {}
-_CB_DEBOUNCE_SEC = 2.5
-_USER_LOCKS: dict[int, asyncio.Lock] = {}
 
 # ============ KEYBOARDS ============
 
@@ -304,7 +305,8 @@ async def render_screen(
 ):
     lock = _USER_LOCKS.setdefault(user_id, asyncio.Lock())
     async with lock:
-        st = STATE.setdefault(user_id, {"flow": None, "role": None, "deadline": None, "msg_id": None, "chat_id": None})
+        st = STATE.setdefault(user_id, {"flow": None, "role": None, "deadline": None,
+                                        "msg_id": None, "chat_id": None, "active": False})
 
         old_chat_id = st.get("chat_id")
         old_msg_id = st.get("msg_id")
@@ -350,7 +352,9 @@ async def cmd_start(m: Message):
         return
     _LAST_START_AT[m.from_user.id] = now
 
-    STATE[m.from_user.id] = {"flow": None, "role": None, "deadline": None, "msg_id": None, "chat_id": None}
+    st = STATE.setdefault(m.from_user.id, {"flow": None, "role": None, "deadline": None,
+                                            "msg_id": None, "chat_id": None, "active": False})
+    st.update({"flow": None, "role": None, "active": True})
     await render_screen(
         m.from_user.id, m.chat.id,
         """ㅤㅤㅤ🐾『𝐓𝐚𝐥𝐞𝐬 𝐨𝐟 𝐊𝐢𝐭𝐬𝐮𝐧𝐞』 🐾
@@ -364,8 +368,13 @@ async def cmd_start(m: Message):
 
 @dp.message(Command("cancel"))
 async def cancel(m: Message):
-    STATE.pop(m.from_user.id, None)
-    await m.answer("Окей. Режим подачи заявки отключён. Набери /start, чтобы начать заново.")
+    st = STATE.setdefault(m.from_user.id, {"flow": None, "role": None, "deadline": None,
+                                            "msg_id": None, "chat_id": None, "active": False})
+    st.update({"flow": None, "role": None, "active": False})
+    await m.answer(
+        "Ты больше не желаешь быть частью стаи? Окей, мы закрыли твою заявку и кураторы больше не увидят твои сообщения. "
+        "Чтобы снова иметь возможность подать заявку и общаться в чате, используй /start"
+    )
 
 @dp.message(Command("topicid"))
 async def topic_id(m: Message):
@@ -373,6 +382,71 @@ async def topic_id(m: Message):
         await m.answer(f"ID этой темы: {m.message_thread_id}")
     else:
         await m.answer("Отправьте команду /topicid внутри нужной темы (вкладки) группы.")
+
+# ---- Админ-команды: бан / разбан ----
+
+@dp.message(Command("ban"))
+async def admin_ban(m: Message, command: CommandObject):
+    if m.chat.type not in ("supergroup", "group"):
+        return
+    if not is_admin(m.from_user.id):
+        return
+
+    args = (command.args or "").split()
+    if not args:
+        await m.reply("Использование: /ban <user_id>")
+        return
+    try:
+        user_id = int(args[0])
+    except ValueError:
+        await m.reply("Айди должен быть числом: /ban 123456789")
+        return
+
+    BANNED_IDS.add(user_id)
+    st = STATE.setdefault(user_id, {"flow": None, "role": None, "deadline": None,
+                                     "msg_id": None, "chat_id": None, "active": False})
+    st["active"] = False  # перестрахуемся: отключаем пересылку
+    # уведомим пользователя
+    try:
+        await bot.send_message(
+            user_id,
+            "Ты слишком болтлив, молодой лис. Нам пришлось отобрать у тебя возможность общаться и отправлять анкеты."
+        )
+    except Exception:
+        pass
+    await m.reply(f"✅ Забанен id {user_id}. Пересылка его сообщений отключена.")
+
+@dp.message(Command("unban"))
+async def admin_unban(m: Message, command: CommandObject):
+    if m.chat.type not in ("supergroup", "group"):
+        return
+    if not is_admin(m.from_user.id):
+        return
+
+    args = (command.args or "").split()
+    if not args:
+        await m.reply("Использование: /unban <user_id>")
+        return
+    try:
+        user_id = int(args[0])
+    except ValueError:
+        await m.reply("Айди должен быть числом: /unban 123456789")
+        return
+
+    if user_id in BANNED_IDS:
+        BANNED_IDS.discard(user_id)
+        try:
+            await bot.send_message(
+                user_id,
+                "Связь со стаей восстановлена. Набери /start, чтобы снова подать заявку и общаться."
+            )
+        except Exception:
+            pass
+        await m.reply(f"✅ Разбанен id {user_id}. Может снова общаться после /start.")
+    else:
+        await m.reply("Этого лиса и так никто не держал в клетке. Он не в бане.")
+
+# ---- Кнопки и экраны ----
 
 @dp.callback_query(F.data == "about")
 async def on_about(c: CallbackQuery):
@@ -412,15 +486,16 @@ async def on_apply(c: CallbackQuery):
     if _cb_too_fast_for_key(c.from_user.id, c.data):
         await c.answer("Притормози, лисёнок...")
         return
-    st = STATE.setdefault(c.from_user.id, {})
+    st = STATE.setdefault(c.from_user.id, {"flow": None, "role": None, "deadline": None,
+                                            "msg_id": None, "chat_id": None, "active": False})
     st.update({"flow": "apply", "role": None})
     await render_screen(
         c.from_user.id,
         c.message.chat.id,
-        """ Выбери направление,ㅤㅤ
-          в котором раскроетсяㅤㅤ
-          твой талант под пред-ㅤㅤ
-          водительством кицунэ.ㅤㅤ""",
+        """Выбери направление,
+в котором раскроется
+твой талант под пред-
+водительством кицунэ.""",
         reply_markup=apply_roles_keyboard()
     )
     await c.answer()
@@ -430,7 +505,8 @@ async def on_vacancies(c: CallbackQuery):
     if _cb_too_fast_for_key(c.from_user.id, c.data):
         await c.answer("Притормози, лисёнок...")
         return
-    st = STATE.setdefault(c.from_user.id, {})
+    st = STATE.setdefault(c.from_user.id, {"flow": None, "role": None, "deadline": None,
+                                            "msg_id": None, "chat_id": None, "active": False})
     st.update({"flow": "vacancies", "role": None})
     await render_screen(c.from_user.id, c.message.chat.id, "Выбери специальность:", reply_markup=vacancies_keyboard())
     await c.answer()
@@ -440,7 +516,8 @@ async def on_back_menu(c: CallbackQuery):
     if _cb_too_fast_for_key(c.from_user.id, c.data):
         await c.answer("Притормози, лисёнок...")
         return
-    st = STATE.setdefault(c.from_user.id, {})
+    st = STATE.setdefault(c.from_user.id, {"flow": None, "role": None, "deadline": None,
+                                            "msg_id": None, "chat_id": None, "active": False})
     st.update({"flow": None, "role": None})
     await render_screen(
         c.from_user.id, c.message.chat.id,
@@ -459,7 +536,8 @@ async def on_back_vacancies(c: CallbackQuery):
     if _cb_too_fast_for_key(c.from_user.id, c.data):
         await c.answer("Притормози, лисёнок...")
         return
-    st = STATE.setdefault(c.from_user.id, {})
+    st = STATE.setdefault(c.from_user.id, {"flow": None, "role": None, "deadline": None,
+                                            "msg_id": None, "chat_id": None, "active": False})
     st.update({"flow": "vacancies", "role": None})
     await render_screen(c.from_user.id, c.message.chat.id, "Специальности:", reply_markup=vacancies_keyboard())
     await c.answer()
@@ -469,15 +547,16 @@ async def on_back_applyroles(c: CallbackQuery):
     if _cb_too_fast_for_key(c.from_user.id, c.data):
         await c.answer("Притормози, лисёнок...")
         return
-    st = STATE.setdefault(c.from_user.id, {})
+    st = STATE.setdefault(c.from_user.id, {"flow": None, "role": None, "deadline": None,
+                                            "msg_id": None, "chat_id": None, "active": False})
     st.update({"flow": "apply", "role": None})
     await render_screen(
         c.from_user.id,
         c.message.chat.id,
-        """ Выбери направление,ㅤㅤ
-          в котором раскроетсяㅤㅤ
-          твой талант под пред-ㅤㅤ
-          водительством кицунэ.ㅤㅤ""",
+        """Выбери направление,
+в котором раскроется
+твой талант под пред-
+водительством кицунэ.""",
         reply_markup=apply_roles_keyboard()
     )
     await c.answer()
@@ -488,7 +567,8 @@ async def vacancy_show(c: CallbackQuery):
         await c.answer("Притормози, лисёнок...")
         return
     key = c.data.split(":", 1)[1]
-    st = STATE.setdefault(c.from_user.id, {})
+    st = STATE.setdefault(c.from_user.id, {"flow": None, "role": None, "deadline": None,
+                                            "msg_id": None, "chat_id": None, "active": False})
     st["role"] = key
     USER_LAST_ROLE[c.from_user.id] = key
 
@@ -505,7 +585,8 @@ async def apply_role_intro(c: CallbackQuery):
         await c.answer("Притормози, лисёнок...")
         return
     key = c.data.split(":", 1)[1]
-    st = STATE.setdefault(c.from_user.id, {})
+    st = STATE.setdefault(c.from_user.id, {"flow": None, "role": None, "deadline": None,
+                                            "msg_id": None, "chat_id": None, "active": False})
     st["role"] = key
     USER_LAST_ROLE[c.from_user.id] = key
 
@@ -524,7 +605,8 @@ async def start_test(c: CallbackQuery):
     key = c.data.split(":", 1)[1]
     info = ROLE_INFO.get(key, {})
     folder = info.get("test_folder", "—")
-    st = STATE.setdefault(c.from_user.id, {})
+    st = STATE.setdefault(c.from_user.id, {"flow": None, "role": None, "deadline": None,
+                                            "msg_id": None, "chat_id": None, "active": False})
     st["deadline"] = datetime.now(timezone.utc)
     st["role"] = key
     USER_LAST_ROLE[c.from_user.id] = key
@@ -546,11 +628,13 @@ async def start_test(c: CallbackQuery):
     asyncio.create_task(schedule_deadline_notify(c.from_user.id, key, st["deadline"]))
     await c.answer("Тест выдан")
 
+# ---- /pm для админов ----
+
 @dp.message(Command("pm"))
 async def admin_pm(m: Message, command: CommandObject):
     if m.chat.type not in ("supergroup", "group"):
         return
-    if ADMIN_IDS and m.from_user.id not in ADMIN_IDS:
+    if not is_admin(m.from_user.id):
         return
 
     args = (command.args or "").split(maxsplit=1)
@@ -606,6 +690,8 @@ async def admin_pm(m: Message, command: CommandObject):
     except Exception as e:
         await m.reply(f"⚠️ Не удалось отправить: {e}")
 
+# ---- ЛС от юзеров: сбор и пересылка ----
+
 @dp.message()
 async def collect_and_forward(m: Message):
     if m.chat.type != "private":
@@ -613,10 +699,15 @@ async def collect_and_forward(m: Message):
     if m.text and m.text.startswith("/"):
         return
 
+    # забанен? неактивен? тогда даже не пытаемся
+    if m.from_user.id in BANNED_IDS:
+        return
     st = STATE.get(m.from_user.id) or {}
+    if not st.get("active", False):
+        return
+
     role_key = st.get("role") or USER_LAST_ROLE.get(m.from_user.id)
     role_title_text = role_title(role_key) if role_key else "—"
-
     thread_id = ROLE_TOPICS.get(role_key) if role_key else None
 
     username = f"@{m.from_user.username}" if m.from_user.username else "—"
