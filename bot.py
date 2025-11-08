@@ -92,8 +92,7 @@ ROLE_INFO = {
 Заклинатель текста, что вплетает слова в очищенные страницы.
 Он подбирает шрифты, ловит ритм строк и старается приручить капризные баблы…
  """,
-        # Обрати внимание: в этой ссылке у тебя в исходнике были кириллические символы.
-        "guide": "https://docs.google.com/document/d/1Xd7Nn0UPS9372f5otgyv8FfO0hGfyNLP/edit?usp=sharing&ouid=104155753409319228630&rtpof=true&sd=true",
+        "guide": "https://docs.google.com/document/d/1Xd7Nн0UPS9372f5otgyv8FfО0hGfyNLP/edit?usp=sharing&ouid=104155753409319228630&rtpof=true&sd=true",
         "test_folder": "https://drive.google.com/drive/folders/1VVrAiriLncotiKkII5_xbAsIyystDtXq?usp=sharing"
     },
     "gluer": {
@@ -102,8 +101,7 @@ ROLE_INFO = {
 Незаметный мастер теней, собирающий рассыпанное полотно страниц в единое целое.
 Он знает, где прячутся лучшие сканы, какие святилища не искажают качество, и на сколько пикселей нужно сдвинуть слой, чтобы стыки исчезли, словно их никогда и не было.
  """,
-        # И здесь поправил на латиницу.
-        "guide": "https://docs.google.com/document/d/1d-JOzkwz2MyQ1K-8LLezIRka6ceg7mxw6ePnrUvMkho/edit?usp=sharing",
+        "guide": "https://docs.google.com/document/d/1d-JOzkwз2MyQ1K-8LLeзIRka6ceг7mxw6ePnrUvMkho/edit?usp=sharing",
         "test_folder": "https://drive.google.com/drive/folders/1Ape7qsiKkm6uhFeKcYvsh1XOuYAa93f8?usp=sharing"
     },
     "curator": {
@@ -120,7 +118,7 @@ ROLE_INFO = {
         "desc": """
 Читает главы до релиза, высматривая каждую шероховатость, пока текст ещё не покинул стены лисьего логова.
  """,
-        "guide": "https://docs.google.com/document/d/1naGul_KQhkV4bMUBaGzHR5KMwNK90j-gNgr5jrIjxWA/edit?usp=sharing",
+        "guide": "https://docs.google.com/document/d/1naGul_KQhkV4bMUBaGзHR5KMwNK90j-gNgr5jrIjxWA/edit?usp=sharing",
         "test_folder": "https://drive.google.com/drive/folders/1jHYnfP7HGuJZFaM_VOJ1UWe-VLrTvLdw?usp=sharing"
     },
     "typecheck": {
@@ -146,6 +144,9 @@ USER_LAST_ROLE: dict[int, str] = {}
 # Бан-лист: можно инициировать через BANNED_IDS="1,2,3"
 BANNED_IDS = {int(x) for x in os.getenv("BANNED_IDS", "").split(",") if x.strip().isdigit()}
 
+# Индексация пересланных сообщений для «свайп-ответа»
+FORWARD_INDEX: dict[tuple[int, int], int] = {}  # (group_chat_id, message_id) -> user_id
+
 _LAST_START_AT: dict[int, float] = {}
 _LAST_CB_KEY_AT: dict[tuple[int, str], float] = {}
 _CB_DEBOUNCE_SEC = 2.5
@@ -166,45 +167,11 @@ dp = Dispatcher()
 # ============ SMALL UTILITIES ============
 
 async def send_plain(chat_id: int, text: str):
-    # Сообщение без HTML, чтобы угловые скобки не рвали парсер
     await bot.send_message(chat_id, text, parse_mode=None, disable_web_page_preview=True)
 
-# --- helpers to close UI and block callbacks when inactive ---
-
-async def _close_user_ui(user_id: int):
-    st = STATE.setdefault(user_id, {"flow": None, "role": None, "deadline": None,
-                                    "msg_id": None, "chat_id": None, "active": False})
-    chat_id = st.get("chat_id")
-    msg_id = st.get("msg_id")
-    if chat_id and msg_id:
-        try:
-            await bot.edit_message_reply_markup(chat_id, msg_id, reply_markup=None)
-            try:
-                await bot.edit_message_text(
-                    chat_id=chat_id, message_id=msg_id,
-                    text="Заявка закрыта. Чтобы начать заново, набери /start.",
-                    parse_mode=None
-                )
-            except Exception:
-                pass
-        except Exception:
-            try:
-                await bot.delete_message(chat_id, msg_id)
-            except Exception:
-                pass
-    st["msg_id"] = None
-
-async def _require_active(c: CallbackQuery) -> bool:
-    st = STATE.setdefault(c.from_user.id, {"flow": None, "role": None, "deadline": None,
-                                            "msg_id": None, "chat_id": None, "active": False})
-    if not st.get("active"):
-        try:
-            await bot.edit_message_reply_markup(c.message.chat.id, c.message.message_id, reply_markup=None)
-        except Exception:
-            pass
-        await c.answer("Заявка закрыта. Набери /start, чтобы открыть заново.")
-        return False
-    return True
+def user_is_active(user_id: int) -> bool:
+    st = STATE.get(user_id) or {}
+    return bool(st.get("active")) and user_id not in BANNED_IDS
 
 # ============ KEYBOARDS ============
 
@@ -271,7 +238,7 @@ def start_test_keyboard(role_key: str):
         [InlineKeyboardButton(text="« Назад", callback_data="back:applyroles")]
     ])
 
-# ============ HELPERS (text blocks) ============
+# ============ HELPERS ============
 
 def role_title(key: str) -> str:
     return ROLE_INFO.get(key, {}).get("title", "—")
@@ -418,11 +385,17 @@ async def cancel(m: Message):
     st = STATE.setdefault(m.from_user.id, {"flow": None, "role": None, "deadline": None,
                                             "msg_id": None, "chat_id": None, "active": False})
     st.update({"flow": None, "role": None, "active": False})
-    await _close_user_ui(m.from_user.id)
+    # удаляем текущее окно с кнопками, чтобы по ним нельзя было тыкать визуально
+    try:
+        if st.get("msg_id") and st.get("chat_id"):
+            await bot.delete_message(st["chat_id"], st["msg_id"])
+    except Exception:
+        pass
+    st["msg_id"] = None
     await send_plain(
         m.chat.id,
-        "Ты больше не желаешь быть частью стаи? Окей, закрыли твою заявку. "
-        "Чтобы снова подать её и общаться в чате, используй /start"
+        "Ты больше не желаешь быть частью стаи? Окей, мы закрыли твою заявку и кураторы больше не увидят твои сообщения. "
+        "Чтобы снова иметь возможность подать заявку и общаться в чате, используй /start"
     )
 
 @dp.message(Command("topicid"))
@@ -495,12 +468,21 @@ async def admin_unban(m: Message, command: CommandObject):
         await send_plain(m.chat.id, "Этого лиса и так никто не держал в клетке. Он не в бане.")
 
 # ---- Кнопки и экраны ----
+# Гейт: любые нажатия игнорим, если пользователь не активен или забанен
+
+def _guard_callbacks(c: CallbackQuery) -> bool:
+    if not user_is_active(c.from_user.id):
+        # вежливо пикаем и не даём ничего открыть
+        asyncio.create_task(c.answer("Сначала /start, потом кнопочки."))
+        return False
+    return True
 
 @dp.callback_query(F.data == "about")
 async def on_about(c: CallbackQuery):
     if _cb_too_fast_for_key(c.from_user.id, c.data):
-        await c.answer("Притормози, лисёнок..."); return
-    if not await _require_active(c):
+        await c.answer("Притормози, лисёнок...")
+        return
+    if not _guard_callbacks(c):
         return
 
     about_html = (
@@ -533,9 +515,11 @@ async def on_about(c: CallbackQuery):
 @dp.callback_query(F.data == "apply")
 async def on_apply(c: CallbackQuery):
     if _cb_too_fast_for_key(c.from_user.id, c.data):
-        await c.answer("Притормози, лисёнок..."); return
-    if not await _require_active(c):
+        await c.answer("Притормози, лисёнок...")
         return
+    if not _guard_callbacks(c):
+        return
+
     st = STATE.setdefault(c.from_user.id, {"flow": None, "role": None, "deadline": None,
                                             "msg_id": None, "chat_id": None, "active": False})
     st.update({"flow": "apply", "role": None})
@@ -553,9 +537,11 @@ async def on_apply(c: CallbackQuery):
 @dp.callback_query(F.data == "vacancies")
 async def on_vacancies(c: CallbackQuery):
     if _cb_too_fast_for_key(c.from_user.id, c.data):
-        await c.answer("Притормози, лисёнок..."); return
-    if not await _require_active(c):
+        await c.answer("Притормози, лисёнок...")
         return
+    if not _guard_callbacks(c):
+        return
+
     st = STATE.setdefault(c.from_user.id, {"flow": None, "role": None, "deadline": None,
                                             "msg_id": None, "chat_id": None, "active": False})
     st.update({"flow": "vacancies", "role": None})
@@ -565,9 +551,11 @@ async def on_vacancies(c: CallbackQuery):
 @dp.callback_query(F.data == "back:menu")
 async def on_back_menu(c: CallbackQuery):
     if _cb_too_fast_for_key(c.from_user.id, c.data):
-        await c.answer("Притормози, лисёнок..."); return
-    if not await _require_active(c):
+        await c.answer("Притормози, лисёнок...")
         return
+    if not _guard_callbacks(c):
+        return
+
     st = STATE.setdefault(c.from_user.id, {"flow": None, "role": None, "deadline": None,
                                             "msg_id": None, "chat_id": None, "active": False})
     st.update({"flow": None, "role": None})
@@ -586,9 +574,11 @@ async def on_back_menu(c: CallbackQuery):
 @dp.callback_query(F.data == "back:applyroles")
 async def on_back_applyroles(c: CallbackQuery):
     if _cb_too_fast_for_key(c.from_user.id, c.data):
-        await c.answer("Притормози, лисёнок..."); return
-    if not await _require_active(c):
+        await c.answer("Притормози, лисёнок...")
         return
+    if not _guard_callbacks(c):
+        return
+
     st = STATE.setdefault(c.from_user.id, {"flow": None, "role": None, "deadline": None,
                                             "msg_id": None, "chat_id": None, "active": False})
     st.update({"flow": "apply", "role": None})
@@ -606,9 +596,11 @@ async def on_back_applyroles(c: CallbackQuery):
 @dp.callback_query(F.data.startswith("v:"))
 async def vacancy_show(c: CallbackQuery):
     if _cb_too_fast_for_key(c.from_user.id, c.data):
-        await c.answer("Притормози, лисёнок..."); return
-    if not await _require_active(c):
+        await c.answer("Притормози, лисёнок...")
         return
+    if not _guard_callbacks(c):
+        return
+
     key = c.data.split(":", 1)[1]
     st = STATE.setdefault(c.from_user.id, {"flow": None, "role": None, "deadline": None,
                                             "msg_id": None, "chat_id": None, "active": False})
@@ -625,9 +617,11 @@ async def vacancy_show(c: CallbackQuery):
 @dp.callback_query(F.data.startswith("a:"))
 async def apply_role_intro(c: CallbackQuery):
     if _cb_too_fast_for_key(c.from_user.id, c.data):
-        await c.answer("Притормози, лисёнок..."); return
-    if not await _require_active(c):
+        await c.answer("Притормози, лисёнок...")
         return
+    if not _guard_callbacks(c):
+        return
+
     key = c.data.split(":", 1)[1]
     st = STATE.setdefault(c.from_user.id, {"flow": None, "role": None, "deadline": None,
                                             "msg_id": None, "chat_id": None, "active": False})
@@ -644,21 +638,20 @@ async def apply_role_intro(c: CallbackQuery):
 @dp.callback_query(F.data.startswith("starttest:"))
 async def start_test(c: CallbackQuery):
     if _cb_too_fast_for_key(c.from_user.id, c.data):
-        await c.answer("Притормози, лисёнок..."); return
-    if not await _require_active(c):
+        await c.answer("Притормози, лисёнок...")
+        return
+    if not _guard_callbacks(c):
         return
 
     key = c.data.split(":", 1)[1]
     info = ROLE_INFO.get(key, {})
     folder = info.get("test_folder", "")
     guide = info.get("guide", "")
-
     st = STATE.setdefault(c.from_user.id, {"flow": None, "role": None, "deadline": None,
                                             "msg_id": None, "chat_id": None, "active": False})
     st["deadline"] = datetime.now(timezone.utc)
     st["role"] = key
     USER_LAST_ROLE[c.from_user.id] = key
-
     title = role_title(key)
 
     lines = [
@@ -673,15 +666,12 @@ async def start_test(c: CallbackQuery):
         "6*. Укажите язык, с которого был выполнен перевод (пункт для переводчиков).",
         "",
     ]
-
     if folder:
         lines.append(f"<b>Папка с тестовым заданием:</b> {folder}")
     else:
         lines.append("<b>Папка с тестовым заданием:</b> отсутствует для этой роли.")
-
     if guide:
         lines.append(f"<b>Правила выполнения задания:</b> {guide}")
-
     lines.append(f"<b>Методичка:</b> {EXTRA_GUIDE_URL}")
     lines.append(f"<b>Дедлайн:</b> {TEST_DEADLINE_DAYS} дня.")
 
@@ -698,6 +688,64 @@ async def start_test(c: CallbackQuery):
     asyncio.create_task(schedule_deadline_notify(c.from_user.id, key, st["deadline"]))
     await c.answer("Тест выдан")
 
+# ---- helpers: resolve target user for /pm ----
+USERNAME_RE = re.compile(r"^@?([A-Za-z0-9_]{5,})$")
+
+async def _extract_user_id_from_replied(msg: Message) -> int | None:
+    """Попытаться вытащить user_id из сообщения, на которое отвечаем (хедер/копия)."""
+    if not msg:
+        return None
+    key = (msg.chat.id, msg.message_id)
+    if key in FORWARD_INDEX:
+        return FORWARD_INDEX[key]
+    # Последний шанс: попробовать прочитать 'id NNN...' из текста хедера
+    txt = (msg.text or msg.caption or "")
+    m2 = re.search(r"\bid\s+(\d{5,})\b", txt)
+    if m2:
+        try:
+            return int(m2.group(1))
+        except Exception:
+            return None
+    return None
+
+async def resolve_pm_target_and_text(args_line: str, replied: Message | None):
+    """
+    Возвращает (user_id, text_for_user).
+    Понимает:
+      - числовой id
+      - @username
+      - если это ответ на сообщение бота в админчате — берём адресата из индекса
+    """
+    args_line = (args_line or "").strip()
+
+    # Если ответ на сообщение — пытаемся извлечь id оттуда
+    uid_from_reply = await _extract_user_id_from_replied(replied)
+    if uid_from_reply:
+        return uid_from_reply, args_line
+
+    if not args_line:
+        return None, ""
+
+    parts = args_line.split(maxsplit=1)
+    first = parts[0]
+    rest = parts[1] if len(parts) > 1 else ""
+
+    # Числовой id
+    if first.isdigit():
+        return int(first), rest
+
+    # @username
+    m = USERNAME_RE.match(first)
+    if m:
+        uname = m.group(1)
+        try:
+            chat = await bot.get_chat(f"@{uname}")
+            return chat.id, rest
+        except Exception:
+            return None, rest
+
+    return None, rest
+
 # ---- /pm для админов ----
 
 @dp.message(Command("pm"))
@@ -707,56 +755,104 @@ async def admin_pm(m: Message, command: CommandObject):
     if not is_admin(m.from_user.id):
         return
 
-    args = (command.args or "").split(maxsplit=1)
-    if not args:
-        await send_plain(m.chat.id, "Использование: /pm ID [текст]. Пример: /pm 123456789 Привет")
-        return
-
-    try:
-        user_id = int(args[0])
-    except ValueError:
-        await send_plain(m.chat.id, "Айди должен быть числом. Пример: /pm 123456789 Привет")
+    target_id, rest = await resolve_pm_target_and_text(command.args or "", m.reply_to_message)
+    if not target_id:
+        await send_plain(m.chat.id, "Айди должен быть числом или @username. Пример: /pm 123456789 Привет или /pm @username Привет\nМожно также ответить на сообщение бота свайпом и написать: /pm Привет")
         return
 
     has_media = any([m.photo, m.document, m.video, m.animation, m.voice, m.audio, m.sticker])
 
     try:
         if has_media:
-            raw_caption = m.caption or ""
-            clean_caption = re.sub(r"(?i)^/pm\s+\d+\s*", "", raw_caption).strip()
-            if not clean_caption and len(args) > 1:
-                clean_caption = args[1].strip()
-
-            caption = "Сообщение от куратора:"
-            if clean_caption:
-                caption += "\n\n" + clean_caption
+            caption = (m.caption or "").strip()
+            if rest:
+                caption = f"{rest}\n\n{caption}" if caption else rest
+            prefix = "Сообщение от куратора:"
+            if caption:
+                caption = f"{prefix}\n\n{caption}"
+            else:
+                caption = prefix
 
             if m.photo:
-                await bot.send_photo(user_id, m.photo[-1].file_id, caption=caption, parse_mode=None)
+                await bot.send_photo(target_id, m.photo[-1].file_id, caption=caption, parse_mode=None)
             elif m.document:
-                await bot.send_document(user_id, m.document.file_id, caption=caption, parse_mode=None)
+                await bot.send_document(target_id, m.document.file_id, caption=caption, parse_mode=None)
             elif m.video:
-                await bot.send_video(user_id, m.video.file_id, caption=caption, parse_mode=None)
+                await bot.send_video(target_id, m.video.file_id, caption=caption, parse_mode=None)
             elif m.animation:
-                await bot.send_animation(user_id, m.animation.file_id, caption=caption, parse_mode=None)
+                await bot.send_animation(target_id, m.animation.file_id, caption=caption, parse_mode=None)
             elif m.audio:
-                await bot.send_audio(user_id, m.audio.file_id, caption=caption, parse_mode=None)
+                await bot.send_audio(target_id, m.audio.file_id, caption=caption, parse_mode=None)
             elif m.voice:
-                await bot.send_voice(user_id, m.voice.file_id, caption=caption)
+                await bot.send_voice(target_id, m.voice.file_id, caption=caption)
             elif m.sticker:
-                await bot.send_sticker(user_id, m.sticker.file_id)
-                if clean_caption or len(args) > 1:
-                    await send_plain(user_id, caption)
+                await bot.send_sticker(target_id, m.sticker.file_id)
+                if caption and caption != "Сообщение от куратора:":
+                    await send_plain(target_id, caption)
             else:
-                await send_plain(user_id, caption)
+                await send_plain(target_id, "Сообщение от куратора:")
         else:
-            text_body = args[1].strip() if len(args) > 1 else ""
+            body = rest.strip() if rest else (m.text or "").split(maxsplit=2)[-1].strip()
             msg = "Сообщение от куратора:"
-            if text_body:
-                msg += "\n\n" + text_body
-            await send_plain(user_id, msg)
+            if body:
+                msg += f"\n\n{body}"
+            await send_plain(target_id, msg)
 
         await send_plain(m.chat.id, "✅ Сообщение отправлено пользователю.")
+    except Exception as e:
+        await send_plain(m.chat.id, f"⚠️ Не удалось отправить: {e}")
+
+# ---- Быстрый ответ по свайпу (reply_to_message) в админчате ----
+
+@dp.message(F.reply_to_message)
+async def admin_quick_reply(m: Message):
+    if m.chat.type not in ("group", "supergroup"):
+        return
+    if not is_admin(m.from_user.id):
+        return
+
+    replied = m.reply_to_message
+    target_id = await _extract_user_id_from_replied(replied)
+    if not target_id:
+        await send_plain(m.chat.id, "Не могу определить адресата. Ответь на сообщение бота с хедером или свежую копию.")
+        return
+
+    try:
+        has_media = any([m.photo, m.document, m.video, m.animation, m.voice, m.audio, m.sticker])
+        prefix = "Ответ куратора:"
+
+        if has_media:
+            caption = m.caption or ""
+            if caption.strip():
+                caption = f"{prefix}\n\n{caption}"
+            else:
+                caption = prefix
+
+            if m.photo:
+                await bot.send_photo(target_id, m.photo[-1].file_id, caption=caption, parse_mode=None)
+            elif m.document:
+                await bot.send_document(target_id, m.document.file_id, caption=caption, parse_mode=None)
+            elif m.video:
+                await bot.send_video(target_id, m.video.file_id, caption=caption, parse_mode=None)
+            elif m.animation:
+                await bot.send_animation(target_id, m.animation.file_id, caption=caption, parse_mode=None)
+            elif m.audio:
+                await bot.send_audio(target_id, m.audio.file_id, caption=caption, parse_mode=None)
+            elif m.voice:
+                await bot.send_voice(target_id, m.voice.file_id, caption=caption)
+            elif m.sticker:
+                await bot.send_sticker(target_id, m.sticker.file_id)
+                if (m.caption or "").strip():
+                    await send_plain(target_id, f"{prefix}\n\n{m.caption}")
+            else:
+                await send_plain(target_id, prefix)
+        else:
+            body = (m.text or "").strip()
+            if not body:
+                body = " "
+            await send_plain(target_id, f"{prefix}\n\n{body}")
+
+        await send_plain(m.chat.id, "✅ Отправлено в ЛС кандидату.")
     except Exception as e:
         await send_plain(m.chat.id, f"⚠️ Не удалось отправить: {e}")
 
@@ -785,11 +881,17 @@ async def collect_and_forward(m: Message):
     try:
         if GROUP_ID:
             if thread_id:
-                await bot.send_message(GROUP_ID, header, message_thread_id=thread_id)
-                await m.copy_to(GROUP_ID, message_thread_id=thread_id)
+                header_msg = await bot.send_message(GROUP_ID, header, message_thread_id=thread_id)
+                FORWARD_INDEX[(header_msg.chat.id, header_msg.message_id)] = m.from_user.id
+
+                copied = await m.copy_to(GROUP_ID, message_thread_id=thread_id)
+                FORWARD_INDEX[(copied.chat.id, copied.message_id)] = m.from_user.id
             else:
-                await bot.send_message(GROUP_ID, header)
-                await m.copy_to(GROUP_ID)
+                header_msg = await bot.send_message(GROUP_ID, header)
+                FORWARD_INDEX[(header_msg.chat.id, header_msg.message_id)] = m.from_user.id
+
+                copied = await m.copy_to(GROUP_ID)
+                FORWARD_INDEX[(copied.chat.id, copied.message_id)] = m.from_user.id
     except Exception as e:
         print("Forward error:", e)
         try:
@@ -811,7 +913,7 @@ async def setup_commands():
     # Админские команды (в группах, где есть админы)
     admin_cmds = [
         BotCommand(command="help", description="Краткая справка по управлению"),
-        BotCommand(command="pm", description="Написать пользователю: /pm ID [текст]"),
+        BotCommand(command="pm", description="Написать пользователю: /pm ID|@user [текст]"),
         BotCommand(command="ban", description="Забанить пользователя: /ban ID"),
         BotCommand(command="unban", description="Разбанить пользователя: /unban ID"),
         BotCommand(command="topicid", description="Показать ID текущей темы"),
@@ -825,11 +927,11 @@ async def help_cmd(m: Message):
     if m.chat.type in ("supergroup", "group") and is_admin(m.from_user.id):
         text = (
             "Админ-команды:\n"
-            "/pm ID [текст] – отправить ЛС пользователю\n"
+            "/pm ID|@username [текст] – отправить ЛС пользователю или ответить на сообщение\n"
             "/ban ID – запретить писать боту и отключить пересылку\n"
             "/unban ID – снять запрет\n"
             "/topicid – показать ID темы для привязки вакансий\n"
-            "\nПодсказка: Telegram сам добавляет @бот в группах. Отключить это невозможно, это поведение клиента."
+            "\nПодсказка: в группах клиенты Telegram добавляют @бот к командам автоматически."
         )
         await send_plain(m.chat.id, text)
     else:
@@ -884,7 +986,6 @@ async def main():
     except Exception:
         pass
 
-    # Регистрируем команды для слэш-меню
     try:
         await setup_commands()
     except Exception as e:
