@@ -811,6 +811,7 @@ async def admin_quick_reply(m: Message):
 
 @dp.message()
 async def collect_and_forward(m: Message):
+    # принимаем только личку и не команды
     if m.chat.type != "private":
         return
     if m.text and m.text.startswith("/"):
@@ -829,39 +830,29 @@ async def collect_and_forward(m: Message):
     username = f"@{m.from_user.username}" if m.from_user.username else "—"
     header = f"📥 Сообщение от {username} (id {m.from_user.id}) | Роль: {role_title_text}"
 
-    if not GROUP_ID:
-        await send_plain(m.chat.id, "Не настроена доставка к кураторам. Свяжитесь с администрацией.")
-        return
-
     delivered = False
     try:
-        if thread_id:
-            header_msg = await bot.send_message(GROUP_ID, header, message_thread_id=thread_id)
-            FORWARD_INDEX[(header_msg.chat.id, header_msg.message_id)] = m.from_user.id
-
-            copied = await m.copy_to(GROUP_ID, message_thread_id=thread_id)
-            FORWARD_INDEX[(copied.chat.id, copied.message_id)] = m.from_user.id
-        else:
-            header_msg = await bot.send_message(GROUP_ID, header)
-            FORWARD_INDEX[(header_msg.chat.id, header_msg.message_id)] = m.from_user.id
-
-            copied = await m.copy_to(GROUP_ID)
-            FORWARD_INDEX[(copied.chat.id, copied.message_id)] = m.from_user.id
-
+        if GROUP_ID:
+            if thread_id:
+                await bot.send_message(GROUP_ID, header, message_thread_id=thread_id)
+                await m.copy_to(GROUP_ID, message_thread_id=thread_id)
+            else:
+                await bot.send_message(GROUP_ID, header)
+                await m.copy_to(GROUP_ID)
         delivered = True
     except Exception as e:
-        print("Forward error:", e)
+        # Не шлём тут пользователю ничего. Просто лог и ниже одно уведомление по результату.
+        print("Forward error:", repr(e))
 
-    if delivered:
-        try:
+    # уведомляем пользователя ОДИН раз, по факту
+    try:
+        if delivered:
             await send_plain(m.chat.id, "Сообщение доставлено кураторам.")
-        except Exception:
-            pass
-    else:
-        try:
+        else:
             await send_plain(m.chat.id, "Не получилось доставить сообщение кураторам. Попробуйте ещё раз позже.")
-        except Exception:
-            pass
+    except Exception:
+        pass
+
 
 # ============ COMMAND SUGGESTIONS (slash menu) ============
 
