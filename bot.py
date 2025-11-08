@@ -92,7 +92,8 @@ ROLE_INFO = {
 Заклинатель текста, что вплетает слова в очищенные страницы.
 Он подбирает шрифты, ловит ритм строк и старается приручить капризные баблы…
  """,
-        "guide": "https://docs.google.com/document/d/1Xd7Nн0UPS9372f5otgyv8FfО0hGfyNLP/edit?usp=sharing&ouid=104155753409319228630&rtpof=true&sd=true",
+        # Обрати внимание: в этой ссылке у тебя в исходнике были кириллические символы.
+        "guide": "https://docs.google.com/document/d/1Xd7Nn0UPS9372f5otgyv8FfO0hGfyNLP/edit?usp=sharing&ouid=104155753409319228630&rtpof=true&sd=true",
         "test_folder": "https://drive.google.com/drive/folders/1VVrAiriLncotiKkII5_xbAsIyystDtXq?usp=sharing"
     },
     "gluer": {
@@ -101,7 +102,8 @@ ROLE_INFO = {
 Незаметный мастер теней, собирающий рассыпанное полотно страниц в единое целое.
 Он знает, где прячутся лучшие сканы, какие святилища не искажают качество, и на сколько пикселей нужно сдвинуть слой, чтобы стыки исчезли, словно их никогда и не было.
  """,
-        "guide": "https://docs.google.com/document/d/1d-JOzkwз2MyQ1K-8LLeзIRka6ceг7mxw6ePnrUvMkho/edit?usp=sharing",
+        # И здесь поправил на латиницу.
+        "guide": "https://docs.google.com/document/d/1d-JOzkwz2MyQ1K-8LLezIRka6ceg7mxw6ePnrUvMkho/edit?usp=sharing",
         "test_folder": "https://drive.google.com/drive/folders/1Ape7qsiKkm6uhFeKcYvsh1XOuYAa93f8?usp=sharing"
     },
     "curator": {
@@ -118,7 +120,7 @@ ROLE_INFO = {
         "desc": """
 Читает главы до релиза, высматривая каждую шероховатость, пока текст ещё не покинул стены лисьего логова.
  """,
-        "guide": "https://docs.google.com/document/d/1naGul_KQhkV4bMUBaGзHR5KMwNK90j-gNgr5jrIjxWA/edit?usp=sharing",
+        "guide": "https://docs.google.com/document/d/1naGul_KQhkV4bMUBaGzHR5KMwNK90j-gNgr5jrIjxWA/edit?usp=sharing",
         "test_folder": "https://drive.google.com/drive/folders/1jHYnfP7HGuJZFaM_VOJ1UWe-VLrTvLdw?usp=sharing"
     },
     "typecheck": {
@@ -166,6 +168,43 @@ dp = Dispatcher()
 async def send_plain(chat_id: int, text: str):
     # Сообщение без HTML, чтобы угловые скобки не рвали парсер
     await bot.send_message(chat_id, text, parse_mode=None, disable_web_page_preview=True)
+
+# --- helpers to close UI and block callbacks when inactive ---
+
+async def _close_user_ui(user_id: int):
+    st = STATE.setdefault(user_id, {"flow": None, "role": None, "deadline": None,
+                                    "msg_id": None, "chat_id": None, "active": False})
+    chat_id = st.get("chat_id")
+    msg_id = st.get("msg_id")
+    if chat_id and msg_id:
+        try:
+            await bot.edit_message_reply_markup(chat_id, msg_id, reply_markup=None)
+            try:
+                await bot.edit_message_text(
+                    chat_id=chat_id, message_id=msg_id,
+                    text="Заявка закрыта. Чтобы начать заново, набери /start.",
+                    parse_mode=None
+                )
+            except Exception:
+                pass
+        except Exception:
+            try:
+                await bot.delete_message(chat_id, msg_id)
+            except Exception:
+                pass
+    st["msg_id"] = None
+
+async def _require_active(c: CallbackQuery) -> bool:
+    st = STATE.setdefault(c.from_user.id, {"flow": None, "role": None, "deadline": None,
+                                            "msg_id": None, "chat_id": None, "active": False})
+    if not st.get("active"):
+        try:
+            await bot.edit_message_reply_markup(c.message.chat.id, c.message.message_id, reply_markup=None)
+        except Exception:
+            pass
+        await c.answer("Заявка закрыта. Набери /start, чтобы открыть заново.")
+        return False
+    return True
 
 # ============ KEYBOARDS ============
 
@@ -232,7 +271,7 @@ def start_test_keyboard(role_key: str):
         [InlineKeyboardButton(text="« Назад", callback_data="back:applyroles")]
     ])
 
-# ============ HELPERS ============
+# ============ HELPERS (text blocks) ============
 
 def role_title(key: str) -> str:
     return ROLE_INFO.get(key, {}).get("title", "—")
@@ -379,10 +418,11 @@ async def cancel(m: Message):
     st = STATE.setdefault(m.from_user.id, {"flow": None, "role": None, "deadline": None,
                                             "msg_id": None, "chat_id": None, "active": False})
     st.update({"flow": None, "role": None, "active": False})
+    await _close_user_ui(m.from_user.id)
     await send_plain(
         m.chat.id,
-        "Ты больше не желаешь быть частью стаи? Окей, мы закрыли твою заявку и кураторы больше не увидят твои сообщения. "
-        "Чтобы снова иметь возможность подать заявку и общаться в чате, используй /start"
+        "Ты больше не желаешь быть частью стаи? Окей, закрыли твою заявку. "
+        "Чтобы снова подать её и общаться в чате, используй /start"
     )
 
 @dp.message(Command("topicid"))
@@ -459,7 +499,8 @@ async def admin_unban(m: Message, command: CommandObject):
 @dp.callback_query(F.data == "about")
 async def on_about(c: CallbackQuery):
     if _cb_too_fast_for_key(c.from_user.id, c.data):
-        await c.answer("Притормози, лисёнок...")
+        await c.answer("Притормози, лисёнок..."); return
+    if not await _require_active(c):
         return
 
     about_html = (
@@ -492,7 +533,8 @@ async def on_about(c: CallbackQuery):
 @dp.callback_query(F.data == "apply")
 async def on_apply(c: CallbackQuery):
     if _cb_too_fast_for_key(c.from_user.id, c.data):
-        await c.answer("Притормози, лисёнок...")
+        await c.answer("Притормози, лисёнок..."); return
+    if not await _require_active(c):
         return
     st = STATE.setdefault(c.from_user.id, {"flow": None, "role": None, "deadline": None,
                                             "msg_id": None, "chat_id": None, "active": False})
@@ -500,10 +542,10 @@ async def on_apply(c: CallbackQuery):
     await render_screen(
         c.from_user.id,
         c.message.chat.id,
-        """        ㅤ        Выбери направление,ㅤ
-        ㅤв котором раскроетсяㅤ
-        ㅤтвой талант под пред-ㅤ
-        ㅤводительством кицунэ.ㅤ""",
+        """ㅤВыбери направление,ㅤ
+ㅤв котором раскроетсяㅤ
+ㅤтвой талант под пред-ㅤ
+ㅤводительством кицунэ.ㅤ""",
         reply_markup=apply_roles_keyboard()
     )
     await c.answer()
@@ -511,7 +553,8 @@ async def on_apply(c: CallbackQuery):
 @dp.callback_query(F.data == "vacancies")
 async def on_vacancies(c: CallbackQuery):
     if _cb_too_fast_for_key(c.from_user.id, c.data):
-        await c.answer("Притормози, лисёнок...")
+        await c.answer("Притормози, лисёнок..."); return
+    if not await _require_active(c):
         return
     st = STATE.setdefault(c.from_user.id, {"flow": None, "role": None, "deadline": None,
                                             "msg_id": None, "chat_id": None, "active": False})
@@ -522,7 +565,8 @@ async def on_vacancies(c: CallbackQuery):
 @dp.callback_query(F.data == "back:menu")
 async def on_back_menu(c: CallbackQuery):
     if _cb_too_fast_for_key(c.from_user.id, c.data):
-        await c.answer("Притормози, лисёнок...")
+        await c.answer("Притормози, лисёнок..."); return
+    if not await _require_active(c):
         return
     st = STATE.setdefault(c.from_user.id, {"flow": None, "role": None, "deadline": None,
                                             "msg_id": None, "chat_id": None, "active": False})
@@ -542,7 +586,8 @@ async def on_back_menu(c: CallbackQuery):
 @dp.callback_query(F.data == "back:applyroles")
 async def on_back_applyroles(c: CallbackQuery):
     if _cb_too_fast_for_key(c.from_user.id, c.data):
-        await c.answer("Притормози, лисёнок...")
+        await c.answer("Притормози, лисёнок..."); return
+    if not await _require_active(c):
         return
     st = STATE.setdefault(c.from_user.id, {"flow": None, "role": None, "deadline": None,
                                             "msg_id": None, "chat_id": None, "active": False})
@@ -550,10 +595,10 @@ async def on_back_applyroles(c: CallbackQuery):
     await render_screen(
         c.from_user.id,
         c.message.chat.id,
-        """        ㅤ        Выбери направление,ㅤ
-        ㅤв котором раскроетсяㅤ
-        ㅤтвой талант под пред-ㅤ
-        ㅤводительством кицунэ.ㅤ""",
+        """ㅤВыбери направление,ㅤ
+ㅤв котором раскроетсяㅤ
+ㅤтвой талант под пред-ㅤ
+ㅤводительством кицунэ.ㅤ""",
         reply_markup=apply_roles_keyboard()
     )
     await c.answer()
@@ -561,7 +606,8 @@ async def on_back_applyroles(c: CallbackQuery):
 @dp.callback_query(F.data.startswith("v:"))
 async def vacancy_show(c: CallbackQuery):
     if _cb_too_fast_for_key(c.from_user.id, c.data):
-        await c.answer("Притормози, лисёнок...")
+        await c.answer("Притормози, лисёнок..."); return
+    if not await _require_active(c):
         return
     key = c.data.split(":", 1)[1]
     st = STATE.setdefault(c.from_user.id, {"flow": None, "role": None, "deadline": None,
@@ -579,7 +625,8 @@ async def vacancy_show(c: CallbackQuery):
 @dp.callback_query(F.data.startswith("a:"))
 async def apply_role_intro(c: CallbackQuery):
     if _cb_too_fast_for_key(c.from_user.id, c.data):
-        await c.answer("Притормози, лисёнок...")
+        await c.answer("Притормози, лисёнок..."); return
+    if not await _require_active(c):
         return
     key = c.data.split(":", 1)[1]
     st = STATE.setdefault(c.from_user.id, {"flow": None, "role": None, "deadline": None,
@@ -597,7 +644,8 @@ async def apply_role_intro(c: CallbackQuery):
 @dp.callback_query(F.data.startswith("starttest:"))
 async def start_test(c: CallbackQuery):
     if _cb_too_fast_for_key(c.from_user.id, c.data):
-        await c.answer("Притормози, лисёнок...")
+        await c.answer("Притормози, лисёнок..."); return
+    if not await _require_active(c):
         return
 
     key = c.data.split(":", 1)[1]
@@ -613,7 +661,6 @@ async def start_test(c: CallbackQuery):
 
     title = role_title(key)
 
-    # Текст анкеты — твоя обновленная версия
     lines = [
         f"<b>{title}</b>",
         "Заполните анкету по форме ниже и прикрепите к ней тестовый файл "
@@ -627,7 +674,6 @@ async def start_test(c: CallbackQuery):
         "",
     ]
 
-    # Ссылки блоком в нужном порядке
     if folder:
         lines.append(f"<b>Папка с тестовым заданием:</b> {folder}")
     else:
