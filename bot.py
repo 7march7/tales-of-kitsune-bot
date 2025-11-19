@@ -1071,31 +1071,40 @@ async def admin_reply_by_swipe(m: Message):
     if not is_admin(m.from_user.id):
         return
 
-    key_base = (m.chat.id, m.reply_to_message.message_id)
-    user_id = REPLY_MAP.get(key_base)
+    # если это /pm в тексте или в подписи — не трогаем,
+    # этим сообщением занимается admin_pm
+    txt = (m.text or m.caption or "").strip()
+    if txt.startswith("/pm"):
+        return
+
+    key = (m.chat.id, m.reply_to_message.message_id)
+    user_id = REPLY_MAP.get(key)
 
     if not user_id:
         try:
-            txt = m.reply_to_message.text or m.reply_to_message.caption or ""
-            mobj = re.search(r"id\s+(\d{6,})", txt)
+            txt_src = m.reply_to_message.text or m.reply_to_message.caption or ""
+            mobj = re.search(r"id\s+(\d{6,})", txt_src)
             if mobj:
                 user_id = int(mobj.group(1))
         except Exception:
             pass
 
     if not user_id:
-        await send_plain(m.chat.id, "Использование: ответьте на сообщение кандидата в этой теме, тогда я пойму, кому отправить.")
+        await send_plain(
+            m.chat.id,
+            "Использование: ответьте на сообщение кандидата в этой теме, тогда я пойму, кому отправить."
+        )
         return
 
     # Альбом от админа по свайпу
     if m.media_group_id:
-        key = (m.chat.id, user_id, m.media_group_id)
-        buf = ADMIN_MG_BUFFERS.setdefault(key, [])
+        key_ag = (m.chat.id, user_id, m.media_group_id)
+        buf = ADMIN_MG_BUFFERS.setdefault(key_ag, [])
         buf.append(m)
-        if key not in ADMIN_MG_TASKS:
-            ADMIN_MG_META[key] = ""  # tail_text нет
-            ADMIN_MG_TASKS[key] = asyncio.create_task(
-                _schedule_flush_admin_media_group(key)
+        if key_ag not in ADMIN_MG_TASKS:
+            ADMIN_MG_META[key_ag] = ""  # tail_text нет
+            ADMIN_MG_TASKS[key_ag] = asyncio.create_task(
+                _schedule_flush_admin_media_group(key_ag)
             )
         return
 
@@ -1104,6 +1113,7 @@ async def admin_reply_by_swipe(m: Message):
         await send_plain(m.chat.id, "✅ Сообщение отправлено пользователю.")
     except Exception as e:
         await send_plain(m.chat.id, f"⚠️ Не удалось отправить: {e}")
+
 
 # ---- ЛС от юзеров: сбор и пересылка ----
 
