@@ -11,7 +11,9 @@ from aiogram.filters import Command, CommandObject
 from aiogram.types import (
     InlineKeyboardMarkup, InlineKeyboardButton,
     Message, CallbackQuery, BotCommand,
-    BotCommandScopeAllPrivateChats, BotCommandScopeAllChatAdministrators
+    BotCommandScopeAllPrivateChats, BotCommandScopeAllChatAdministrators,
+    InputMediaPhoto, InputMediaVideo, InputMediaDocument,
+    InputMediaAudio, InputMediaAnimation,
 )
 
 # ==== HTML parse_mode: совместимость с разными aiogram ====
@@ -152,6 +154,17 @@ _USER_LOCKS: dict[int, asyncio.Lock] = {}
 # Сообщение в группе -> целевой user_id для «свайп-ответа»
 REPLY_MAP: dict[tuple[int, int], int] = {}
 
+# Буферы для media_group от кандидатов
+USER_MG_BUFFERS: dict[tuple[int, str], list[Message]] = {}
+USER_MG_TASKS: dict[tuple[int, str], asyncio.Task] = {}
+USER_MG_META: dict[tuple[int, str], tuple[str, int | None]] = {}
+
+# Буферы для media_group от админов (ответы кандидату)
+ADMIN_MG_BUFFERS: dict[tuple[int, int, str], list[Message]] = {}
+ADMIN_MG_TASKS: dict[tuple[int, int, str], asyncio.Task] = {}
+ADMIN_MG_META: dict[tuple[int, int, str], str] = {}  # tail_text (из /pm), если есть
+
+
 def is_admin(user_id: int) -> bool:
     return not ADMIN_IDS or user_id in ADMIN_IDS
 
@@ -197,15 +210,32 @@ def apply_info_block(key: str) -> str:
         f"<b>Методичка:</b> {EXTRA_GUIDE_URL}"
     )
 
-async def send_combined_user_message_to_group(
+def build_input_media(msg: Message, caption: str | None = None):
+    """
+    Преобразовать Message в InputMedia* для send_media_group.
+    Поддерживаем фото, документ, видео, анимацию, аудио.
+    """
+    if msg.photo:
+        return InputMediaPhoto(media=msg.photo[-1].file_id, caption=caption)
+    if msg.document:
+        return InputMediaDocument(media=msg.document.file_id, caption=caption)
+    if msg.video:
+        return InputMediaVideo(media=msg.video.file_id, caption=caption)
+    if msg.animation:
+        return InputMediaAnimation(media=msg.animation.file_id, caption=caption)
+    if msg.audio:
+        return InputMediaAudio(media=msg.audio.file_id, caption=caption)
+    # voice, sticker и прочее в альбом не пихаем
+    return None
+
+async def send_combined_user_message_to_group_single(
     m: Message,
     role_title_text: str,
     thread_id: int | None,
 ) -> bool:
     """
-    Делает ОДНО сообщение в группе:
-    шапка + текст/подпись + вложение (если есть).
-    На него потом можно ответить и через /pm, и через свайп.
+    ОДНО сообщение в группе (для одиночного сообщения кандидата):
+    шапка + текст/подпись + одно вложение (если есть).
     """
     if not GROUP_ID:
         return False
@@ -287,7 +317,7 @@ async def send_combined_user_message_to_group(
                 **send_kwargs,
             )
     except Exception as e:
-        print("send_combined_user_message_to_group error:", e)
+        print("send_combined_user_message_to_group_single error:", e)
         return False
 
     if sent_msg:
@@ -295,26 +325,101 @@ async def send_combined_user_message_to_group(
         return True
     return False
 
+async def flush_user_media_group(key: tuple[int, str]):
+    """
+    Отправка альбома от кандидата в группу одним media_group + одно уведомление кандидату.
+    """
+    user_id, mg_id = key
+    msgs = USER_MG_BUFFERS.pop(key, [])
+    USER_MG_TASKS.pop(key, None)
+    meta = USER_MG_META.pop(key, ("—", None))
+    role_title_text, thread_id = meta
+
+    if not msgs or not GROUP_ID:
+        return
+
+    msgs.sort(key=lambda x: x.message_id)
+
+    first = msgs[0]
+    username = f"@{first.from_user.username}" if first.from_user.username else "—"
+    hashtag = f"\n#{first.from_user.username}" if first.from_user.username else ""
+    header = f"📥 Сообщение от {username} (id {user_id}) | Роль: {role_title_text}{hashtag}"
+
+    body_parts: list[str] = []
+    for m in msgs:
+        t = (m.caption or m.text or "").strip()
+        if t:
+            body_parts.append(t)
+    # убираем дубли
+    seen = set()
+    uniq_parts = []
+    for t in body_parts:
+        if t not in seen:
+            seen.add(t)
+            uniq_parts.append(t)
+
+    body_text = "\n\n".join(uniq_parts) if uniq_parts else ""
+    caption_first = header
+    if body_text:
+        caption_first += "\n\n" + body_text
+
+    media = []
+    for i, m in enumerate(msgs[:10]):
+        cap = caption_first if i == 0 else None
+        im = build_input_media(m, cap)
+        if im:
+            media.append(im)
+
+    send_kwargs: dict = {}
+    if thread_id:
+        send_kwargs["message_thread_id"] = thread_id
+
+    try:
+        if media:
+            sent_list = await bot.send_media_group(GROUP_ID, media, **send_kwargs)
+            for sm in sent_list:
+                remember_reply_target(sm, user_id)
+        else:
+            # если ни один файл не подошёл под media_group (теоретически)
+            msg = await bot.send_message(GROUP_ID, caption_first, **send_kwargs)
+            remember_reply_target(msg, user_id)
+
+        await send_plain(user_id, "Сообщение доставлено кураторам.")
+    except Exception as e:
+        print("flush_user_media_group error:", e)
+        try:
+            await send_plain(user_id, "Не получилось доставить сообщение кураторам. Попробуйте ещё раз позже.")
+        except Exception:
+            pass
+
 async def send_admin_message_to_user(user_id: int, src: Message, tail_text: str | None = None):
     """
     Отправляет пользователю ОДНО сообщение:
-    вложение (если есть) + подпись 'Сообщение от куратора' + текст.
-    Работает и для /pm, и для свайп-ответа.
+    либо текст, либо один файл + подпись 'Сообщение от куратора' + текст.
+    Работает и для /pm, и для свайп-ответа (без альбомов).
     """
     tail_text = (tail_text or "").strip()
 
     raw_caption = src.caption or ""
     clean_caption = re.sub(r"(?i)^/pm(\s+\d+)?\s*", "", raw_caption).strip()
 
+    body_text = (src.text or "").strip()
+    if body_text:
+        body_text = re.sub(r"(?i)^/pm(\s+\d+)?\s*", "", body_text).strip()
+
+    base_text = ""
     if tail_text:
+        base_text = tail_text
         if clean_caption:
-            clean_caption = f"{tail_text}\n\n{clean_caption}"
-        else:
-            clean_caption = tail_text
+            base_text += "\n\n" + clean_caption
+        elif body_text:
+            base_text += "\n\n" + body_text
+    else:
+        base_text = clean_caption or body_text
 
     caption = "Сообщение от куратора:"
-    if clean_caption:
-        caption += "\n\n" + clean_caption
+    if base_text:
+        caption += "\n\n" + base_text
 
     has_media = any([
         src.photo,
@@ -344,6 +449,68 @@ async def send_admin_message_to_user(user_id: int, src: Message, tail_text: str 
             await send_plain(user_id, caption)
     else:
         await send_plain(user_id, caption)
+
+async def flush_admin_media_group(key: tuple[int, int, str]):
+    """
+    Отправка альбома от куратора кандидату одним media_group + одно уведомление в группу.
+    key = (chat_id группы, user_id кандидата, media_group_id)
+    """
+    chat_id, user_id, mg_id = key
+    msgs = ADMIN_MG_BUFFERS.pop(key, [])
+    ADMIN_MG_TASKS.pop(key, None)
+    tail_text = ADMIN_MG_META.pop(key, "")
+
+    if not msgs:
+        return
+
+    msgs.sort(key=lambda x: x.message_id)
+
+    # собираем текст из всех сообщений альбома
+    parts: list[str] = []
+    if tail_text:
+        parts.append(tail_text.strip())
+
+    for m in msgs:
+        t = (m.caption or m.text or "").strip()
+        if t:
+            t = re.sub(r"(?i)^/pm(\s+\d+)?\s*", "", t).strip()
+            if t:
+                parts.append(t)
+
+    # убираем дубли
+    seen = set()
+    uniq_parts = []
+    for t in parts:
+        if t not in seen:
+            seen.add(t)
+            uniq_parts.append(t)
+
+    base_text = "\n\n".join(uniq_parts) if uniq_parts else ""
+
+    caption = "Сообщение от куратора:"
+    if base_text:
+        caption += "\n\n" + base_text
+
+    media = []
+    for i, m in enumerate(msgs[:10]):
+        cap = caption if i == 0 else None
+        im = build_input_media(m, cap)
+        if im:
+            media.append(im)
+
+    try:
+        if media:
+            await bot.send_media_group(user_id, media)
+        else:
+            await send_plain(user_id, caption)
+
+        await send_plain(chat_id, "✅ Сообщение отправлено пользователю.")
+    except Exception as e:
+        print("flush_admin_media_group error:", e)
+        try:
+            await send_plain(chat_id, f"⚠️ Не удалось отправить: {e}")
+        except Exception:
+            pass
 
 def _cb_too_fast_for_key(user_id: int, data: str) -> bool:
     key = data.split(":", 1)[0] if data else ""
@@ -875,11 +1042,27 @@ async def admin_pm(m: Message, command: CommandObject):
         await send_plain(m.chat.id, "Айди должен быть числом. Пример: /pm 123456789 Привет\nИли просто ответьте на сообщение кандидата.")
         return
 
+    # Если это альбом от админа – буферизуем и шлём одним media_group
+    if m.media_group_id:
+        key = (m.chat.id, user_id, m.media_group_id)
+        buf = ADMIN_MG_BUFFERS.setdefault(key, [])
+        buf.append(m)
+        if key not in ADMIN_MG_TASKS:
+            ADMIN_MG_META[key] = tail_text
+            ADMIN_MG_TASKS[key] = asyncio.create_task(
+                _schedule_flush_admin_media_group(key)
+            )
+        return
+
     try:
         await send_admin_message_to_user(user_id, m, tail_text)
         await send_plain(m.chat.id, "✅ Сообщение отправлено пользователю.")
     except Exception as e:
         await send_plain(m.chat.id, f"⚠️ Не удалось отправить: {e}")
+
+async def _schedule_flush_admin_media_group(key: tuple[int, int, str]):
+    await asyncio.sleep(0.7)
+    await flush_admin_media_group(key)
 
 # ---- Свайп-ответ в группе ----
 
@@ -888,8 +1071,8 @@ async def admin_reply_by_swipe(m: Message):
     if not is_admin(m.from_user.id):
         return
 
-    key = (m.chat.id, m.reply_to_message.message_id)
-    user_id = REPLY_MAP.get(key)
+    key_base = (m.chat.id, m.reply_to_message.message_id)
+    user_id = REPLY_MAP.get(key_base)
 
     if not user_id:
         try:
@@ -904,6 +1087,18 @@ async def admin_reply_by_swipe(m: Message):
         await send_plain(m.chat.id, "Использование: ответьте на сообщение кандидата в этой теме, тогда я пойму, кому отправить.")
         return
 
+    # Альбом от админа по свайпу
+    if m.media_group_id:
+        key = (m.chat.id, user_id, m.media_group_id)
+        buf = ADMIN_MG_BUFFERS.setdefault(key, [])
+        buf.append(m)
+        if key not in ADMIN_MG_TASKS:
+            ADMIN_MG_META[key] = ""  # tail_text нет
+            ADMIN_MG_TASKS[key] = asyncio.create_task(
+                _schedule_flush_admin_media_group(key)
+            )
+        return
+
     try:
         await send_admin_message_to_user(user_id, m)
         await send_plain(m.chat.id, "✅ Сообщение отправлено пользователю.")
@@ -911,6 +1106,10 @@ async def admin_reply_by_swipe(m: Message):
         await send_plain(m.chat.id, f"⚠️ Не удалось отправить: {e}")
 
 # ---- ЛС от юзеров: сбор и пересылка ----
+
+async def _schedule_flush_user_media_group(key: tuple[int, str]):
+    await asyncio.sleep(0.7)
+    await flush_user_media_group(key)
 
 @dp.message()
 async def collect_and_forward(m: Message):
@@ -929,10 +1128,23 @@ async def collect_and_forward(m: Message):
     role_title_text = role_title(role_key) if role_key else "—"
     thread_id = ROLE_TOPICS.get(role_key) if role_key else None
 
+    # Альбом от кандидата
+    if m.media_group_id:
+        key = (m.from_user.id, m.media_group_id)
+        buf = USER_MG_BUFFERS.setdefault(key, [])
+        buf.append(m)
+        if key not in USER_MG_TASKS:
+            USER_MG_META[key] = (role_title_text, thread_id)
+            USER_MG_TASKS[key] = asyncio.create_task(
+                _schedule_flush_user_media_group(key)
+            )
+        # подтверждение прилетит после отправки всей группы в flush_user_media_group
+        return
+
     delivered = False
     try:
         if GROUP_ID:
-            delivered = await send_combined_user_message_to_group(
+            delivered = await send_combined_user_message_to_group_single(
                 m,
                 role_title_text,
                 thread_id,
